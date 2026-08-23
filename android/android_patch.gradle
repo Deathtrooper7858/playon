@@ -1,0 +1,71 @@
+def classesToPatch = [
+    "com.android.build.gradle.BaseExtension",
+    "com.android.build.gradle.LibraryExtension",
+    "com.android.build.gradle.AppExtension",
+    "com.android.build.gradle.internal.dsl.BuildType",
+    "com.android.build.gradle.internal.dsl.LibraryExtensionImpl",
+    "com.android.build.gradle.internal.dsl.ApplicationExtensionImpl",
+    "com.android.build.gradle.internal.dsl.BaseFlavor"
+]
+for (className in classesToPatch) {
+    try {
+        Class<?> clazz = Class.forName(className)
+        def method = clazz.getMethod("getDefaultProguardFile", String.class)
+        clazz.metaClass.getDefaultProguardFile = { String name ->
+            def target = (name == 'proguard-android.txt') ? 'proguard-android-optimize.txt' : name
+            return method.invoke(delegate, target)
+        }
+    } catch (Throwable ignored) {}
+}
+
+project.metaClass.getDefaultProguardFile = { String name ->
+    def target = (name == 'proguard-android.txt') ? 'proguard-android-optimize.txt' : name
+    def androidExt = project.extensions.findByName('android')
+    if (androidExt != null) {
+        return androidExt.getDefaultProguardFile(target)
+    }
+    return null
+}
+
+afterEvaluate { project ->
+    if (project.hasProperty('android')) {
+        // Fix namespace
+        if (project.android.namespace == null) {
+            def manifestFile = project.file("src/main/AndroidManifest.xml")
+            if (manifestFile.exists()) {
+                def manifestContent = manifestFile.getText('UTF-8')
+                def matcher = manifestContent =~ /package="([^"]+)"/
+                if (matcher.find()) {
+                    project.android.namespace = matcher.group(1)
+                }
+            }
+        }
+        
+        // Fix JVM target and compileSdk
+        project.android {
+            compileSdkVersion 35
+            compileOptions {
+                sourceCompatibility JavaVersion.VERSION_17
+                targetCompatibility JavaVersion.VERSION_17
+            }
+        }
+        
+        // Some older plugins use kotlinOptions
+        try {
+            project.android.kotlinOptions {
+                jvmTarget = '17'
+            }
+        } catch (Exception e) {}
+    }
+    
+    // Also enforce JavaCompile tasks
+    project.tasks.withType(JavaCompile).configureEach {
+        sourceCompatibility = '17'
+        targetCompatibility = '17'
+    }
+    
+    // Enforce KotlinCompile tasks
+    project.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+        kotlinOptions.jvmTarget = '17'
+    }
+}
