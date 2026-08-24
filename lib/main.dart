@@ -118,42 +118,44 @@ class _RootScaffoldState extends State<_RootScaffold> {
   }
 
   Widget _buildNavBar() {
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-        child: Container(
-          decoration: BoxDecoration(
-            color: PlayOnTheme.bgCard.withValues(alpha: 0.8),
-            border: const Border(
-              top: BorderSide(color: PlayOnTheme.glassBorder, width: 1),
-            ),
-          ),
-          child: BottomNavigationBar(
-            currentIndex: _currentIndex,
-            onTap: (i) => setState(() => _currentIndex = i),
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            selectedItemColor: PlayOnTheme.purpleGlow,
-            unselectedItemColor: PlayOnTheme.textTertiary,
-            selectedLabelStyle: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 12,
-              letterSpacing: 0.2,
-            ),
-            unselectedLabelStyle: const TextStyle(fontSize: 11.5),
-            type: BottomNavigationBarType.fixed,
-            items: const [
-              BottomNavigationBarItem(
-                icon: Icon(Icons.library_music_outlined),
-                activeIcon: Icon(Icons.library_music_rounded),
-                label: 'Biblioteca',
+    return RepaintBoundary(
+      child: ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: Container(
+            decoration: BoxDecoration(
+              color: PlayOnTheme.bgCard.withValues(alpha: 0.8),
+              border: const Border(
+                top: BorderSide(color: PlayOnTheme.glassBorder, width: 1),
               ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.download_outlined),
-                activeIcon: Icon(Icons.download_rounded),
-                label: 'Descargas',
+            ),
+            child: BottomNavigationBar(
+              currentIndex: _currentIndex,
+              onTap: (i) => setState(() => _currentIndex = i),
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              selectedItemColor: PlayOnTheme.purpleGlow,
+              unselectedItemColor: PlayOnTheme.textTertiary,
+              selectedLabelStyle: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+                letterSpacing: 0.2,
               ),
-            ],
+              unselectedLabelStyle: const TextStyle(fontSize: 11.5),
+              type: BottomNavigationBarType.fixed,
+              items: const [
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.library_music_outlined),
+                  activeIcon: Icon(Icons.library_music_rounded),
+                  label: 'Biblioteca',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.download_outlined),
+                  activeIcon: Icon(Icons.download_rounded),
+                  label: 'Descargas',
+                ),
+              ],
+            ),
           ),
         ),
       ),

@@ -130,7 +130,7 @@ class EqualizerSheet extends StatelessWidget {
                           _PresetChip(
                             label: 'Custom',
                             isSelected: eq.selectedPreset == -1,
-                            onTap: () {},
+                            onTap: () => eq.setCustom(),
                           ),
                           const SizedBox(width: 8),
                           ...List.generate(eq.presets.length, (idx) {

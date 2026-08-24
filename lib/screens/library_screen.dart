@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
 import 'package:provider/provider.dart';
@@ -5,11 +6,14 @@ import '../models/song_model.dart';
 import '../providers/music_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../services/playlist_db.dart';
+import '../services/file_management_service.dart';
 import '../theme.dart';
 import '../widgets/add_to_playlist_dialog.dart';
 import '../widgets/edit_tags_dialog.dart';
 import '../widgets/equalizer_bars.dart';
 import '../widgets/mini_player.dart';
+import '../widgets/move_to_folder_sheet.dart';
+import 'folder_detail_screen.dart';
 import 'now_playing_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
@@ -240,7 +244,7 @@ class _SongsTab extends StatelessWidget {
       shouldRebuild: (prev, next) =>
           prev.isLoading != next.isLoading ||
           prev.currentSongId != next.currentSongId ||
-          prev.songs.length != next.songs.length,
+          !listEquals(prev.songs, next.songs),
       builder: (context, data, _) {
         if (data.isLoading) {
           return const Center(
@@ -365,7 +369,7 @@ class _FavoritesTab extends StatelessWidget {
       shouldRebuild: (prev, next) =>
           prev.isLoading != next.isLoading ||
           prev.currentSongId != next.currentSongId ||
-          prev.songs.length != next.songs.length,
+          !listEquals(prev.songs, next.songs),
       builder: (context, data, _) {
         if (data.isLoading) {
           return const Center(
@@ -781,6 +785,67 @@ class _PlaylistsTab extends StatelessWidget {
 class _FoldersTab extends StatelessWidget {
   const _FoldersTab();
 
+  Future<void> _createFolderDialog(BuildContext context, List<PlayOnSong> allSongs) async {
+    final controller = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: PlayOnTheme.bgCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.create_new_folder_rounded, color: PlayOnTheme.purpleGlow),
+            SizedBox(width: 10),
+            Text('Nueva carpeta', style: TextStyle(color: PlayOnTheme.textPrimary, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: const TextStyle(color: PlayOnTheme.textPrimary),
+          decoration: const InputDecoration(
+            hintText: 'Nombre de la carpeta (ej. Rock, Favoritas...)',
+            hintStyle: TextStyle(color: PlayOnTheme.textTertiary, fontSize: 13),
+            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: PlayOnTheme.divider)),
+            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: PlayOnTheme.purplePrimary)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar', style: TextStyle(color: PlayOnTheme.textSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: PlayOnTheme.purplePrimary,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Crear', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && controller.text.trim().isNotEmpty) {
+      final name = controller.text.trim();
+      final baseDir = await FileManagementService.getDefaultMusicBaseDir(allSongs);
+      final newPath = await FileManagementService.createFolder(parentPath: baseDir, folderName: name);
+      if (!context.mounted) return;
+      if (newPath != null) {
+        final provider = context.read<MusicProvider>();
+        final messenger = ScaffoldMessenger.of(context);
+        await provider.loadSongs();
+        messenger.showSnackBar(
+          SnackBar(
+            backgroundColor: PlayOnTheme.bgCard,
+            content: Text('Carpeta "$name" creada', style: const TextStyle(color: PlayOnTheme.textPrimary)),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Selector<MusicProvider, _FoldersTabData>(
@@ -803,15 +868,49 @@ class _FoldersTab extends StatelessWidget {
           );
         }
 
+        final provider = context.read<MusicProvider>();
+
         return ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
           children: [
+            // Botón Crear Nueva Carpeta
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: InkWell(
+                onTap: () => _createFolderDialog(context, provider.allSongs),
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: PlayOnTheme.bgSurface,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: PlayOnTheme.divider),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.create_new_folder_rounded, color: PlayOnTheme.purpleGlow, size: 20),
+                      SizedBox(width: 12),
+                      Text(
+                        '+ Crear nueva carpeta de música',
+                        style: TextStyle(
+                          color: PlayOnTheme.purpleGlow,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
             _FolderCard(
               name: 'Todas las carpetas',
               count: data.allCount,
               isSelected: data.selectedFolder == null,
-              onTap: () => context.read<MusicProvider>().selectFolder(null),
+              onTap: () => provider.selectFolder(null),
               icon: Icons.library_music_rounded,
+              showOptions: false,
             ),
             const SizedBox(height: 8),
             ...data.folders.map((folder) {
@@ -822,8 +921,14 @@ class _FoldersTab extends StatelessWidget {
                   name: folder,
                   count: count,
                   isSelected: data.selectedFolder == folder,
-                  onTap: () => context.read<MusicProvider>().selectFolder(folder),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => FolderDetailScreen(folderName: folder)),
+                    );
+                  },
                   icon: Icons.folder_rounded,
+                  showOptions: true,
                 ),
               );
             }),
@@ -856,6 +961,7 @@ class _FolderCard extends StatelessWidget {
   final bool isSelected;
   final VoidCallback onTap;
   final IconData icon;
+  final bool showOptions;
 
   const _FolderCard({
     required this.name,
@@ -863,10 +969,144 @@ class _FolderCard extends StatelessWidget {
     required this.isSelected,
     required this.onTap,
     required this.icon,
+    this.showOptions = false,
   });
+
+  Future<void> _renameFolderDialog(BuildContext context, MusicProvider provider) async {
+    final songs = provider.allSongs.where((s) => s.folderName == name).toList();
+    final folderPath = songs.isNotEmpty && songs.first.folderPath != null ? songs.first.folderPath! : '';
+    if (folderPath.isEmpty) return;
+
+    final controller = TextEditingController(text: name);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: PlayOnTheme.bgCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Renombrar carpeta', style: TextStyle(color: PlayOnTheme.textPrimary, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: const TextStyle(color: PlayOnTheme.textPrimary),
+          decoration: const InputDecoration(
+            hintText: 'Nuevo nombre de carpeta',
+            hintStyle: TextStyle(color: PlayOnTheme.textTertiary),
+            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: PlayOnTheme.divider)),
+            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: PlayOnTheme.purplePrimary)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar', style: TextStyle(color: PlayOnTheme.textSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: PlayOnTheme.purplePrimary,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Renombrar', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && controller.text.trim().isNotEmpty && controller.text.trim() != name) {
+      final newName = controller.text.trim();
+      try {
+        await FileManagementService.renameFolder(
+          currentFolderPath: folderPath,
+          newFolderName: newName,
+          songsInFolder: songs,
+        );
+        if (!context.mounted) return;
+        final messenger = ScaffoldMessenger.of(context);
+        await provider.loadSongs();
+        messenger.showSnackBar(
+          SnackBar(
+            backgroundColor: PlayOnTheme.bgCard,
+            content: Text('Carpeta renombrada a "$newName"', style: const TextStyle(color: PlayOnTheme.textPrimary)),
+          ),
+        );
+      } catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: PlayOnTheme.bgCard,
+            content: Text('Error al renombrar: $e', style: const TextStyle(color: PlayOnTheme.pinkAccent)),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteFolderDialog(BuildContext context, MusicProvider provider) async {
+    final songs = provider.allSongs.where((s) => s.folderName == name).toList();
+    final folderPath = songs.isNotEmpty && songs.first.folderPath != null ? songs.first.folderPath! : '';
+    if (folderPath.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: PlayOnTheme.bgCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: PlayOnTheme.pinkAccent),
+            SizedBox(width: 10),
+            Text('Eliminar carpeta', style: TextStyle(color: PlayOnTheme.textPrimary, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Text(
+          '¿Estás seguro de que deseas eliminar permanentemente la carpeta "$name" y sus ${songs.length} canciones?',
+          style: const TextStyle(color: PlayOnTheme.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar', style: TextStyle(color: PlayOnTheme.textSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: PlayOnTheme.pinkAccent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Eliminar', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        await FileManagementService.deleteFolder(folderPath: folderPath, songsInFolder: songs);
+        if (!context.mounted) return;
+        final messenger = ScaffoldMessenger.of(context);
+        await provider.loadSongs();
+        messenger.showSnackBar(
+          SnackBar(
+            backgroundColor: PlayOnTheme.bgCard,
+            content: Text('Carpeta "$name" eliminada', style: const TextStyle(color: PlayOnTheme.textPrimary)),
+          ),
+        );
+      } catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: PlayOnTheme.bgCard,
+            content: Text('Error al eliminar: $e', style: const TextStyle(color: PlayOnTheme.pinkAccent)),
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final provider = context.watch<MusicProvider>();
+
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -914,7 +1154,74 @@ class _FolderCard extends StatelessWidget {
                 ],
               ),
             ),
-            if (isSelected)
+            if (showOptions)
+              PopupMenuButton<String>(
+                icon: const Icon(Icons.more_vert_rounded, color: PlayOnTheme.textTertiary, size: 20),
+                color: PlayOnTheme.bgSurface,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                onSelected: (action) {
+                  if (action == 'open') {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => FolderDetailScreen(folderName: name)),
+                    );
+                  } else if (action == 'play') {
+                    provider.selectFolder(name);
+                    provider.playSong(0);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const NowPlayingScreen()),
+                    );
+                  } else if (action == 'rename') {
+                    _renameFolderDialog(context, provider);
+                  } else if (action == 'delete') {
+                    _deleteFolderDialog(context, provider);
+                  }
+                },
+                itemBuilder: (ctx) => [
+                  const PopupMenuItem(
+                    value: 'open',
+                    child: Row(
+                      children: [
+                        Icon(Icons.folder_open_rounded, color: PlayOnTheme.cyanAccent, size: 18),
+                        SizedBox(width: 10),
+                        Text('Abrir carpeta', style: TextStyle(color: PlayOnTheme.textPrimary, fontSize: 13.5)),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'play',
+                    child: Row(
+                      children: [
+                        Icon(Icons.play_arrow_rounded, color: PlayOnTheme.purpleGlow, size: 18),
+                        SizedBox(width: 10),
+                        Text('Reproducir carpeta', style: TextStyle(color: PlayOnTheme.textPrimary, fontSize: 13.5)),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'rename',
+                    child: Row(
+                      children: [
+                        Icon(Icons.edit_rounded, color: PlayOnTheme.amberWarning, size: 18),
+                        SizedBox(width: 10),
+                        Text('Renombrar', style: TextStyle(color: PlayOnTheme.textPrimary, fontSize: 13.5)),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'delete',
+                    child: Row(
+                      children: [
+                        Icon(Icons.delete_outline_rounded, color: PlayOnTheme.pinkAccent, size: 18),
+                        SizedBox(width: 10),
+                        Text('Eliminar', style: TextStyle(color: PlayOnTheme.pinkAccent, fontSize: 13.5)),
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            else if (isSelected)
               const Icon(Icons.check_circle_rounded, color: PlayOnTheme.purpleGlow, size: 20),
           ],
         ),
@@ -944,9 +1251,10 @@ class _ShuffleAllButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
+        if (songs.isEmpty) return;
         final provider = context.read<MusicProvider>();
         if (!provider.isShuffle) provider.toggleShuffle();
-        provider.playSong(0);
+        provider.playCustomQueue(songs, 0);
         Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const NowPlayingScreen()),
@@ -1014,7 +1322,7 @@ class _SongTile extends StatelessWidget {
                   id: song.id,
                   type: ArtworkType.AUDIO,
                   format: ArtworkFormat.JPEG,
-                  artworkQuality: FilterQuality.medium,
+                  artworkQuality: FilterQuality.low,
                   size: 150,
                   nullArtworkWidget: Container(
                     decoration: const BoxDecoration(
@@ -1076,19 +1384,72 @@ class _SongTile extends StatelessWidget {
               icon: const Icon(Icons.more_vert_rounded, color: PlayOnTheme.textTertiary, size: 20),
               color: PlayOnTheme.bgSurface,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              onSelected: (action) {
-                if (action == 'playlist') {
+              onSelected: (action) async {
+                if (action == 'move') {
+                  MoveToFolderSheet.show(context, songs: [song]);
+                } else if (action == 'playlist') {
                   AddToPlaylistDialog.show(context, song);
                 } else if (action == 'tags') {
                   EditTagsDialog.show(context, song);
+                } else if (action == 'delete') {
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      backgroundColor: PlayOnTheme.bgCard,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      title: const Text('Eliminar archivo', style: TextStyle(color: PlayOnTheme.textPrimary, fontWeight: FontWeight.bold)),
+                      content: Text(
+                        '¿Deseas eliminar permanentemente "${song.title}" de tu dispositivo?',
+                        style: const TextStyle(color: PlayOnTheme.textSecondary),
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text('Cancelar', style: TextStyle(color: PlayOnTheme.textSecondary)),
+                        ),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: PlayOnTheme.pinkAccent,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text('Eliminar', style: TextStyle(color: Colors.white)),
+                        ),
+                      ],
+                    ),
+                  );
+
+                  if (confirmed == true) {
+                    await FileManagementService.deleteSong(song);
+                    if (!context.mounted) return;
+                    final provider = context.read<MusicProvider>();
+                    final messenger = ScaffoldMessenger.of(context);
+                    await provider.loadSongs();
+                    messenger.showSnackBar(
+                      SnackBar(
+                        backgroundColor: PlayOnTheme.bgCard,
+                        content: Text('"${song.title}" eliminada', style: const TextStyle(color: PlayOnTheme.textPrimary)),
+                      ),
+                    );
+                  }
                 }
               },
               itemBuilder: (ctx) => [
                 const PopupMenuItem(
+                  value: 'move',
+                  child: Row(
+                    children: [
+                      Icon(Icons.drive_file_move_rounded, color: PlayOnTheme.cyanAccent, size: 18),
+                      SizedBox(width: 10),
+                      Text('Mover a otra carpeta', style: TextStyle(color: PlayOnTheme.textPrimary, fontSize: 13.5)),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
                   value: 'playlist',
                   child: Row(
                     children: [
-                      Icon(Icons.playlist_add_rounded, color: PlayOnTheme.pinkAccent),
+                      Icon(Icons.playlist_add_rounded, color: PlayOnTheme.pinkAccent, size: 18),
                       SizedBox(width: 10),
                       Text('Añadir a Playlist', style: TextStyle(color: PlayOnTheme.textPrimary, fontSize: 13.5)),
                     ],
@@ -1098,9 +1459,19 @@ class _SongTile extends StatelessWidget {
                   value: 'tags',
                   child: Row(
                     children: [
-                      Icon(Icons.edit_note_rounded, color: PlayOnTheme.purpleGlow),
+                      Icon(Icons.edit_note_rounded, color: PlayOnTheme.purpleGlow, size: 18),
                       SizedBox(width: 10),
                       Text('Editar Etiquetas ID3', style: TextStyle(color: PlayOnTheme.textPrimary, fontSize: 13.5)),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_outline_rounded, color: PlayOnTheme.pinkAccent, size: 18),
+                      SizedBox(width: 10),
+                      Text('Eliminar archivo', style: TextStyle(color: PlayOnTheme.pinkAccent, fontSize: 13.5)),
                     ],
                   ),
                 ),

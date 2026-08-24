@@ -177,10 +177,23 @@ class DownloadProvider extends ChangeNotifier {
   // ── Solicitar permisos de almacenamiento ──────────────────────────────────
   Future<bool> _requestStoragePermission() async {
     if (!Platform.isAndroid) return true;
-    if (await Permission.storage.isGranted) return true;
-    final result = await Permission.storage.request();
-    if (result.isGranted) return true;
-    return true; // Scoped storage en Android 11+
+    try {
+      if (await Permission.manageExternalStorage.isGranted) return true;
+      final manageStatus = await Permission.manageExternalStorage.request();
+      if (manageStatus.isGranted) return true;
+    } catch (_) {}
+
+    try {
+      if (await Permission.audio.isGranted) return true;
+      await Permission.audio.request();
+    } catch (_) {}
+
+    try {
+      if (await Permission.storage.isGranted) return true;
+      final result = await Permission.storage.request();
+      return result.isGranted;
+    } catch (_) {}
+    return true;
   }
 
   String _normalizeUrl(String rawUrl) {
@@ -350,7 +363,7 @@ class DownloadProvider extends ChangeNotifier {
       String? trackError;
 
       try {
-        _statusMessage = 'Descargando audio y metadatos...';
+        _statusMessage = 'Descargando audio...';
         notifyListeners();
 
         await NativeNotificationService.updateProgress(
@@ -370,10 +383,23 @@ class DownloadProvider extends ChangeNotifier {
           cookies: cookieString,
         );
 
-        trackSuccess = true;
-        await NativeMediaScannerService.scanFile(filePath);
+        // Verificar si el archivo se guardó correctamente
+        final savedFile = File(filePath);
+        if (savedFile.existsSync() && savedFile.lengthSync() > 1024) {
+          trackSuccess = true;
+          try {
+            await NativeMediaScannerService.scanFile(filePath);
+          } catch (_) {}
+        } else {
+          trackError = 'El archivo no se generó correctamente';
+        }
       } catch (e) {
-        trackError = e.toString().replaceFirst('Exception: ', '');
+        final errStr = e.toString().replaceFirst('Exception: ', '');
+        if (errStr.contains('Sign in to confirm') || errStr.contains('bot')) {
+          trackError = 'YouTube bloqueó la descarga temporalmente. Inicia sesión en YouTube desde el botón superior para resolverlo.';
+        } else {
+          trackError = errStr;
+        }
         debugPrint('Error descargando "${track.title}": $e');
       }
 
@@ -389,7 +415,7 @@ class DownloadProvider extends ChangeNotifier {
       _downloaded++;
       notifyListeners();
 
-      // Delay anti rate-limit
+      // Delay breve anti rate-limit
       if (!_cancelled && i < resolvedTracks.length - 1) {
         int delaySecs = 1 + rng.nextInt(2);
         _statusMessage = 'Pausa breve...';
@@ -404,12 +430,15 @@ class DownloadProvider extends ChangeNotifier {
     if (!_cancelled) {
       _status = DownloadStatus.done;
       _statusMessage = '';
+      final successfulCount = _completedTracks.where((t) => t.success).length;
       await NativeNotificationService.finishProgress(
         title: 'Descarga finalizada',
-        text: 'Se completaron $_downloaded de $_total canciones en "$_playlistName"',
+        text: 'Se completaron $successfulCount de $_total canciones en "$_playlistName"',
       );
-      await _saveRecentDownload(_playlistName, resolvedPlaylistTitle, _downloaded);
-      await _musicProvider.loadSongs();
+      if (successfulCount > 0) {
+        await _saveRecentDownload(_playlistName, resolvedPlaylistTitle, successfulCount);
+        await _musicProvider.loadSongs();
+      }
     }
     notifyListeners();
   }
@@ -453,10 +482,23 @@ class DownloadProvider extends ChangeNotifier {
           thumbnailUrl: track.thumbnailUrl,
           cookies: cookieString,
         );
-        success = true;
-        await NativeMediaScannerService.scanFile(filePath);
+
+        final savedFile = File(filePath);
+        if (savedFile.existsSync() && savedFile.lengthSync() > 1024) {
+          success = true;
+          try {
+            await NativeMediaScannerService.scanFile(filePath);
+          } catch (_) {}
+        } else {
+          error = 'No se pudo generar el archivo';
+        }
       } catch (e) {
-        error = e.toString().replaceFirst('Exception: ', '');
+        final errStr = e.toString().replaceFirst('Exception: ', '');
+        if (errStr.contains('Sign in to confirm') || errStr.contains('bot')) {
+          error = 'Requiere sesión de YouTube para descargar.';
+        } else {
+          error = errStr;
+        }
       }
 
       final updatedTrack = DownloadedTrack(
@@ -489,8 +531,21 @@ class DownloadProvider extends ChangeNotifier {
           final root = externalDirs.first.path.split('Android/data').first;
           final separator = root.endsWith('/') ? '' : '/';
           final musicDir = Directory('$root${separator}Music');
-          await musicDir.create(recursive: true);
-          return musicDir;
+          try {
+            await musicDir.create(recursive: true);
+            // Validar acceso real de escritura en /Music
+            final testFile = File('${musicDir.path}/.playon_write_test');
+            await testFile.writeAsString('ok');
+            if (await testFile.exists()) {
+              await testFile.delete();
+            }
+            return musicDir;
+          } catch (_) {
+            // Fallback seguro: Almacenamiento externo propio de la app
+            final appExternalDir = Directory('${externalDirs.first.path}/Music');
+            await appExternalDir.create(recursive: true);
+            return appExternalDir;
+          }
         }
       } catch (e) {
         debugPrint('Error obteniendo directorio externo: $e');

@@ -6,6 +6,7 @@ class NativeEqualizerConfig {
   final int maxLevel;
   final List<int> centerFreqs;
   final List<String> presets;
+  final List<int> bandLevels;
   final bool enabled;
   final int bassBoost;
 
@@ -15,6 +16,7 @@ class NativeEqualizerConfig {
     required this.maxLevel,
     required this.centerFreqs,
     required this.presets,
+    required this.bandLevels,
     required this.enabled,
     required this.bassBoost,
   });
@@ -26,6 +28,7 @@ class NativeEqualizerConfig {
       maxLevel: map['maxLevel'] as int? ?? 1500,
       centerFreqs: (map['centerFreqs'] as List?)?.map((e) => e as int).toList() ?? const [],
       presets: (map['presets'] as List?)?.map((e) => e.toString()).toList() ?? const [],
+      bandLevels: (map['bandLevels'] as List?)?.map((e) => e as int).toList() ?? const [],
       enabled: map['enabled'] as bool? ?? false,
       bassBoost: map['bassBoost'] as int? ?? 0,
     );
@@ -66,12 +69,21 @@ class NativeEqualizerService {
     }
   }
 
-  static Future<bool> usePreset(int presetIndex) async {
+  static Future<List<int>?> usePreset(int presetIndex) async {
     try {
-      final res = await _channel.invokeMethod<bool>('usePreset', {'preset': presetIndex});
-      return res ?? false;
+      final res = await _channel.invokeListMethod<int>('usePreset', {'preset': presetIndex});
+      return res;
     } catch (_) {
-      return false;
+      return null;
+    }
+  }
+
+  static Future<List<int>?> getBandLevels() async {
+    try {
+      final res = await _channel.invokeListMethod<int>('getBandLevels');
+      return res;
+    } catch (_) {
+      return null;
     }
   }
 

@@ -45,7 +45,9 @@ class EqualizerProvider extends ChangeNotifier {
         _maxLevel = config.maxLevel;
         _centerFreqs = config.centerFreqs;
         _presets = config.presets;
-        if (_bandLevels.length != _numBands) {
+        if (config.bandLevels.isNotEmpty) {
+          _bandLevels = List<int>.from(config.bandLevels);
+        } else if (_bandLevels.length != _numBands) {
           _bandLevels = List.filled(_numBands, 0);
         }
 
@@ -73,8 +75,16 @@ class EqualizerProvider extends ChangeNotifier {
 
       await NativeEqualizerService.setEnabled(_enabled);
       await NativeEqualizerService.setBassBoost(_bassBoost);
-      for (int i = 0; i < _bandLevels.length; i++) {
-        await NativeEqualizerService.setBandLevel(i, _bandLevels[i]);
+
+      if (_selectedPreset >= 0 && _selectedPreset < _presets.length) {
+        final presetLevels = await NativeEqualizerService.usePreset(_selectedPreset);
+        if (presetLevels != null && presetLevels.isNotEmpty) {
+          _bandLevels = List<int>.from(presetLevels);
+        }
+      } else {
+        for (int i = 0; i < _bandLevels.length; i++) {
+          await NativeEqualizerService.setBandLevel(i, _bandLevels[i]);
+        }
       }
     } catch (e) {
       debugPrint('Error loading EQ state: $e');
@@ -120,13 +130,22 @@ class EqualizerProvider extends ChangeNotifier {
   Future<void> usePreset(int presetIndex) async {
     if (presetIndex < 0 || presetIndex >= _presets.length) return;
     _selectedPreset = presetIndex;
-    notifyListeners();
     try {
-      await NativeEqualizerService.usePreset(presetIndex);
+      final presetLevels = await NativeEqualizerService.usePreset(presetIndex);
+      if (presetLevels != null && presetLevels.isNotEmpty) {
+        _bandLevels = List<int>.from(presetLevels);
+      }
       await _saveState();
     } catch (e) {
       debugPrint('Error applying preset: $e');
     }
+    notifyListeners();
+  }
+
+  void setCustom() {
+    _selectedPreset = -1;
+    _saveState();
+    notifyListeners();
   }
 
   Future<void> setBassBoost(int strength) async {

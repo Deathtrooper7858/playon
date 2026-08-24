@@ -13,6 +13,7 @@ import io.flutter.plugin.common.MethodChannel
 import com.ryanheise.audioservice.AudioServiceActivity
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
+import java.util.concurrent.Executors
 
 class MainActivity : AudioServiceActivity() {
 
@@ -24,8 +25,12 @@ class MainActivity : AudioServiceActivity() {
 
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
+    private var currentAudioSessionId: Int = 0
     private val DOWNLOAD_NOTIF_CHANNEL_ID = "playon_downloads"
     private val DOWNLOAD_NOTIF_ID = 9001
+    
+    // Pool de hilos reutilizables para operaciones I/O en segundo plano (ahorro de RAM y CPU)
+    private val backgroundExecutor = Executors.newFixedThreadPool(3)
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -33,6 +38,13 @@ class MainActivity : AudioServiceActivity() {
         if (!Python.isStarted()) {
             Python.start(AndroidPlatform(this))
         }
+
+        // Configurar la ruta privada de caché de la app para yt-dlp y archivos temporales
+        try {
+            val py = Python.getInstance()
+            val module = py.getModule("ytdlp_helper")
+            module.callAttr("set_temp_dir", cacheDir.absolutePath)
+        } catch (_: Exception) {}
 
         createNotificationChannel()
 
@@ -75,7 +87,7 @@ class MainActivity : AudioServiceActivity() {
                             result.error("INVALID_ARGUMENT", "url must not be null", null)
                             return@setMethodCallHandler
                         }
-                        Thread {
+                        backgroundExecutor.execute {
                             try {
                                 val py = Python.getInstance()
                                 val module = py.getModule("ytdlp_helper")
@@ -93,7 +105,7 @@ class MainActivity : AudioServiceActivity() {
                                     result.error("YTDLP_EXCEPTION", e.message, null)
                                 }
                             }
-                        }.start()
+                        }
                     }
                     "getPlaylistInfo" -> {
                         val url = call.argument<String>("url")
@@ -102,7 +114,7 @@ class MainActivity : AudioServiceActivity() {
                             result.error("INVALID_ARGUMENT", "url must not be null", null)
                             return@setMethodCallHandler
                         }
-                        Thread {
+                        backgroundExecutor.execute {
                             try {
                                 val py = Python.getInstance()
                                 val module = py.getModule("ytdlp_helper")
@@ -116,7 +128,7 @@ class MainActivity : AudioServiceActivity() {
                                     result.error("YTDLP_EXCEPTION", e.message, null)
                                 }
                             }
-                        }.start()
+                        }
                     }
                     "downloadAudio" -> {
                         val url = call.argument<String>("url")
@@ -130,7 +142,7 @@ class MainActivity : AudioServiceActivity() {
                             result.error("INVALID_ARGUMENT", "url and outPath must not be null", null)
                             return@setMethodCallHandler
                         }
-                        Thread {
+                        backgroundExecutor.execute {
                             try {
                                 val py = Python.getInstance()
                                 val module = py.getModule("ytdlp_helper")
@@ -157,7 +169,7 @@ class MainActivity : AudioServiceActivity() {
                                     result.error("YTDLP_EXCEPTION", e.message, null)
                                 }
                             }
-                        }.start()
+                        }
                     }
                     else -> result.notImplemented()
                 }
@@ -170,21 +182,66 @@ class MainActivity : AudioServiceActivity() {
                     "initEqualizer" -> {
                         try {
                             val sessionId = call.argument<Int>("audioSessionId") ?: 0
+
+                            if (currentAudioSessionId != 0 && currentAudioSessionId != sessionId) {
+                                try {
+                                    val closeIntent = android.content.Intent(android.media.audiofx.AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION).apply {
+                                        putExtra(android.media.audiofx.AudioEffect.EXTRA_AUDIO_SESSION, currentAudioSessionId)
+                                        putExtra(android.media.audiofx.AudioEffect.EXTRA_PACKAGE_NAME, packageName)
+                                    }
+                                    sendBroadcast(closeIntent)
+                                } catch (_: Exception) {}
+                            }
+
                             try {
                                 equalizer?.release()
                                 bassBoost?.release()
                             } catch (_: Exception) {}
 
-                            equalizer = Equalizer(0, sessionId)
-                            bassBoost = BassBoost(0, sessionId)
+                            currentAudioSessionId = sessionId
 
-                            val numBands = equalizer?.numberOfBands?.toInt() ?: 0
+                            if (sessionId != 0) {
+                                try {
+                                    val openIntent = android.content.Intent(android.media.audiofx.AudioEffect.ACTION_OPEN_AUDIO_EFFECT_CONTROL_SESSION).apply {
+                                        putExtra(android.media.audiofx.AudioEffect.EXTRA_AUDIO_SESSION, sessionId)
+                                        putExtra(android.media.audiofx.AudioEffect.EXTRA_PACKAGE_NAME, packageName)
+                                        putExtra(android.media.audiofx.AudioEffect.EXTRA_CONTENT_TYPE, android.media.audiofx.AudioEffect.CONTENT_TYPE_MUSIC)
+                                    }
+                                    sendBroadcast(openIntent)
+                                } catch (_: Exception) {}
+                            }
+
+                            try {
+                                equalizer = Equalizer(1000, sessionId)
+                            } catch (_: Exception) {
+                                try {
+                                    equalizer = Equalizer(0, sessionId)
+                                } catch (_: Exception) {
+                                    equalizer = null
+                                }
+                            }
+
+                            try {
+                                bassBoost = BassBoost(1000, sessionId)
+                            } catch (_: Exception) {
+                                try {
+                                    bassBoost = BassBoost(0, sessionId)
+                                } catch (_: Exception) {
+                                    bassBoost = null
+                                }
+                            }
+
+                            val numBands = equalizer?.numberOfBands?.toInt() ?: 5
                             val minLevel = equalizer?.bandLevelRange?.get(0)?.toInt() ?: -1500
                             val maxLevel = equalizer?.bandLevelRange?.get(1)?.toInt() ?: 1500
 
                             val centerFreqs = mutableListOf<Int>()
-                            for (i in 0 until numBands) {
-                                centerFreqs.add(equalizer?.getCenterFreq(i.toShort()) ?: 0)
+                            if (equalizer != null && numBands > 0) {
+                                for (i in 0 until numBands) {
+                                    centerFreqs.add(equalizer?.getCenterFreq(i.toShort()) ?: 0)
+                                }
+                            } else {
+                                centerFreqs.addAll(listOf(60000, 230000, 910000, 3600000, 14000000))
                             }
 
                             val numPresets = equalizer?.numberOfPresets?.toInt() ?: 0
@@ -193,12 +250,20 @@ class MainActivity : AudioServiceActivity() {
                                 presets.add(equalizer?.getPresetName(i.toShort()) ?: "Preset $i")
                             }
 
+                            val bandLevels = mutableListOf<Int>()
+                            if (equalizer != null && numBands > 0) {
+                                for (i in 0 until numBands) {
+                                    bandLevels.add(equalizer?.getBandLevel(i.toShort())?.toInt() ?: 0)
+                                }
+                            }
+
                             val response = mapOf(
                                 "numBands" to numBands,
                                 "minLevel" to minLevel,
                                 "maxLevel" to maxLevel,
                                 "centerFreqs" to centerFreqs,
                                 "presets" to presets,
+                                "bandLevels" to bandLevels,
                                 "enabled" to (equalizer?.enabled ?: false),
                                 "bassBoost" to (bassBoost?.roundedStrength?.toInt() ?: 0)
                             )
@@ -231,7 +296,24 @@ class MainActivity : AudioServiceActivity() {
                         val preset = call.argument<Int>("preset")?.toShort() ?: 0
                         try {
                             equalizer?.usePreset(preset)
-                            result.success(true)
+                            val numBands = equalizer?.numberOfBands?.toInt() ?: 0
+                            val bandLevels = mutableListOf<Int>()
+                            for (i in 0 until numBands) {
+                                bandLevels.add(equalizer?.getBandLevel(i.toShort())?.toInt() ?: 0)
+                            }
+                            result.success(bandLevels)
+                        } catch (e: Exception) {
+                            result.error("EQ_ERROR", e.message, null)
+                        }
+                    }
+                    "getBandLevels" -> {
+                        try {
+                            val numBands = equalizer?.numberOfBands?.toInt() ?: 0
+                            val bandLevels = mutableListOf<Int>()
+                            for (i in 0 until numBands) {
+                                bandLevels.add(equalizer?.getBandLevel(i.toShort())?.toInt() ?: 0)
+                            }
+                            result.success(bandLevels)
                         } catch (e: Exception) {
                             result.error("EQ_ERROR", e.message, null)
                         }
@@ -261,7 +343,7 @@ class MainActivity : AudioServiceActivity() {
                             result.error("INVALID_ARGUMENT", "path must not be null", null)
                             return@setMethodCallHandler
                         }
-                        Thread {
+                        backgroundExecutor.execute {
                             try {
                                 val py = Python.getInstance()
                                 val module = py.getModule("ytdlp_helper")
@@ -270,7 +352,7 @@ class MainActivity : AudioServiceActivity() {
                             } catch (e: Exception) {
                                 runOnUiThread { result.error("TAG_ERROR", e.message, null) }
                             }
-                        }.start()
+                        }
                     }
                     "setAudioTags" -> {
                         val path = call.argument<String>("path")
@@ -281,7 +363,7 @@ class MainActivity : AudioServiceActivity() {
                             result.error("INVALID_ARGUMENT", "path must not be null", null)
                             return@setMethodCallHandler
                         }
-                        Thread {
+                        backgroundExecutor.execute {
                             try {
                                 val py = Python.getInstance()
                                 val module = py.getModule("ytdlp_helper")
@@ -300,7 +382,7 @@ class MainActivity : AudioServiceActivity() {
                             } catch (e: Exception) {
                                 runOnUiThread { result.error("TAG_ERROR", e.message, null) }
                             }
-                        }.start()
+                        }
                     }
                     else -> result.notImplemented()
                 }
@@ -336,7 +418,7 @@ class MainActivity : AudioServiceActivity() {
                         val notification = NotificationCompat.Builder(this, DOWNLOAD_NOTIF_CHANNEL_ID)
                             .setContentTitle(title)
                             .setContentText(text)
-                            .setSmallIcon(R.mipmap.launcher_icon)
+                            .setSmallIcon(R.drawable.ic_notification)
                             .setProgress(0, 0, false)
                             .setOngoing(false)
                             .setAutoCancel(true)
@@ -371,7 +453,17 @@ class MainActivity : AudioServiceActivity() {
     }
 
     override fun onDestroy() {
+        if (currentAudioSessionId != 0) {
+            try {
+                val closeIntent = android.content.Intent(android.media.audiofx.AudioEffect.ACTION_CLOSE_AUDIO_EFFECT_CONTROL_SESSION).apply {
+                    putExtra(android.media.audiofx.AudioEffect.EXTRA_AUDIO_SESSION, currentAudioSessionId)
+                    putExtra(android.media.audiofx.AudioEffect.EXTRA_PACKAGE_NAME, packageName)
+                }
+                sendBroadcast(closeIntent)
+            } catch (_: Exception) {}
+        }
         try {
+            backgroundExecutor.shutdownNow()
             equalizer?.release()
             bassBoost?.release()
         } catch (_: Exception) {}

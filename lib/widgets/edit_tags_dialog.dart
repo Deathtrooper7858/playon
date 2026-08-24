@@ -54,7 +54,7 @@ class _EditTagsDialogState extends State<EditTagsDialog> {
 
     try {
       await NativeTagsService.setAudioTags(
-        path: widget.song.uri,
+        path: widget.song.filePath,
         title: title,
         artist: artist,
         album: album,

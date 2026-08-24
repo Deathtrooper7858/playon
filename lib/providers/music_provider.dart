@@ -243,6 +243,14 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
       }),
     );
 
+    _subscriptions.add(
+      _player.androidAudioSessionIdStream.listen((sessionId) {
+        if (sessionId != null && sessionId > 0) {
+          notifyListeners();
+        }
+      }),
+    );
+
     await loadSongs();
   }
 
@@ -289,6 +297,7 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
           duration: s.duration ?? 0,
           folderName: folderName,
           folderPath: folderPath,
+          filePath: path,
         );
       }).toList();
 

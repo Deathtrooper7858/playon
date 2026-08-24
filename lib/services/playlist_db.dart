@@ -43,8 +43,13 @@ class PlaylistDb {
     return await openDatabase(
       path,
       version: 1,
+      onConfigure: _onConfigure,
       onCreate: _createDB,
     );
+  }
+
+  Future<void> _onConfigure(Database db) async {
+    await db.execute('PRAGMA foreign_keys = ON');
   }
 
   Future<void> _createDB(Database db, int version) async {
@@ -63,6 +68,15 @@ class PlaylistDb {
         song_id INTEGER NOT NULL,
         FOREIGN KEY (playlist_id) REFERENCES playlists (id) ON DELETE CASCADE
       )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_playlist_songs_playlist_id 
+      ON playlist_songs (playlist_id)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_playlist_songs_song_id 
+      ON playlist_songs (song_id)
     ''');
   }
 

@@ -61,47 +61,51 @@ class _AnimatedAlbumArtState extends State<AnimatedAlbumArt>
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // Ambient Aura (Multi-layer glow)
-            Container(
-              width: 290,
-              height: 290,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: PlayOnTheme.purplePrimary.withValues(alpha: 0.35),
-                    blurRadius: 70,
-                    spreadRadius: 15,
-                  ),
-                  BoxShadow(
-                    color: PlayOnTheme.pinkAccent.withValues(alpha: 0.25),
-                    blurRadius: 50,
-                    spreadRadius: 5,
-                  ),
-                ],
+            // Ambient Aura (Multi-layer glow) - Aislado con RepaintBoundary para rasterizar sombra en GPU
+            RepaintBoundary(
+              child: Container(
+                width: 290,
+                height: 290,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: PlayOnTheme.purplePrimary.withValues(alpha: 0.35),
+                      blurRadius: 70,
+                      spreadRadius: 15,
+                    ),
+                    BoxShadow(
+                      color: PlayOnTheme.pinkAccent.withValues(alpha: 0.25),
+                      blurRadius: 50,
+                      spreadRadius: 5,
+                    ),
+                  ],
+                ),
               ),
             ),
 
-            // Spinning Vinyl Ring
-            AnimatedBuilder(
-              animation: _rotationController,
-              builder: (_, child) => Transform.rotate(
-                angle: _rotationController.value * 2 * pi,
-                child: child,
-              ),
-              child: Container(
-                width: 280,
-                height: 280,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: SweepGradient(
-                    colors: [
-                      PlayOnTheme.purplePrimary.withValues(alpha: 0.0),
-                      PlayOnTheme.purplePrimary.withValues(alpha: 0.8),
-                      PlayOnTheme.pinkAccent.withValues(alpha: 0.8),
-                      PlayOnTheme.cyanAccent.withValues(alpha: 0.5),
-                      PlayOnTheme.purplePrimary.withValues(alpha: 0.0),
-                    ],
+            // Spinning Vinyl Ring (Aislado en capa de textura GPU propia)
+            RepaintBoundary(
+              child: AnimatedBuilder(
+                animation: _rotationController,
+                builder: (_, child) => Transform.rotate(
+                  angle: _rotationController.value * 2 * pi,
+                  child: child,
+                ),
+                child: Container(
+                  width: 280,
+                  height: 280,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: SweepGradient(
+                      colors: [
+                        PlayOnTheme.purplePrimary.withValues(alpha: 0.0),
+                        PlayOnTheme.purplePrimary.withValues(alpha: 0.8),
+                        PlayOnTheme.pinkAccent.withValues(alpha: 0.8),
+                        PlayOnTheme.cyanAccent.withValues(alpha: 0.5),
+                        PlayOnTheme.purplePrimary.withValues(alpha: 0.0),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -136,7 +140,7 @@ class _AnimatedAlbumArtState extends State<AnimatedAlbumArt>
                   id: widget.songId,
                   type: ArtworkType.AUDIO,
                   format: ArtworkFormat.JPEG,
-                  artworkQuality: FilterQuality.high,
+                  artworkQuality: FilterQuality.medium,
                   size: 500,
                   artworkWidth: 254,
                   artworkHeight: 254,

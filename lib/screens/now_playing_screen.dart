@@ -122,31 +122,69 @@ class NowPlayingScreen extends StatelessWidget {
   void _showTimerOptions(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) {
         return ClipRRect(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
             child: Container(
-              color: PlayOnTheme.bgCard.withValues(alpha: 0.9),
-              padding: const EdgeInsets.symmetric(vertical: 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Apagar música después de',
-                    style: TextStyle(color: PlayOnTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
+              decoration: BoxDecoration(
+                color: PlayOnTheme.bgCard.withValues(alpha: 0.92),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                border: Border.all(color: PlayOnTheme.glassBorder, width: 1.5),
+              ),
+              child: SafeArea(
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 44,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: PlayOnTheme.divider,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      const Text(
+                        'Apagar música después de',
+                        style: TextStyle(
+                          color: PlayOnTheme.textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ...[15, 30, 45, 60].map((mins) => ListTile(
+                            dense: true,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            title: Text('$mins Minutos', style: const TextStyle(color: PlayOnTheme.textPrimary, fontSize: 15)),
+                            trailing: const Icon(Icons.timer_outlined, color: PlayOnTheme.textTertiary, size: 20),
+                            onTap: () {
+                              context.read<MusicProvider>().setSleepTimer(Duration(minutes: mins));
+                              Navigator.pop(context);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  backgroundColor: PlayOnTheme.bgCard,
+                                  content: Text(
+                                    'Temporizador configurado para $mins minutos',
+                                    style: const TextStyle(color: PlayOnTheme.textPrimary),
+                                  ),
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                            },
+                          )),
+                    ],
                   ),
-                  const SizedBox(height: 16),
-                  ...[15, 30, 45, 60].map((mins) => ListTile(
-                        title: Text('$mins Minutos', style: const TextStyle(color: PlayOnTheme.textPrimary)),
-                        onTap: () {
-                          context.read<MusicProvider>().setSleepTimer(Duration(minutes: mins));
-                          Navigator.pop(context);
-                        },
-                      )),
-                ],
+                ),
               ),
             ),
           ),
@@ -158,42 +196,73 @@ class NowPlayingScreen extends StatelessWidget {
   void _showSpeedOptions(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) {
         return ClipRRect(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
             child: Container(
-              color: PlayOnTheme.bgCard.withValues(alpha: 0.9),
-              padding: const EdgeInsets.symmetric(vertical: 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'Velocidad de Reproducción',
-                    style: TextStyle(color: PlayOnTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 16),
-                  ...[0.75, 1.0, 1.25, 1.5, 1.75, 2.0].map((spd) {
-                    final currentSpd = context.read<MusicProvider>().speed;
-                    final isSelected = (currentSpd == spd);
-                    return ListTile(
-                      title: Text(
-                        '${spd}x ${spd == 1.0 ? "(Normal)" : ""}',
-                        style: TextStyle(
-                          color: isSelected ? PlayOnTheme.purpleGlow : PlayOnTheme.textPrimary,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              decoration: BoxDecoration(
+                color: PlayOnTheme.bgCard.withValues(alpha: 0.92),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                border: Border.all(color: PlayOnTheme.glassBorder, width: 1.5),
+              ),
+              child: SafeArea(
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 44,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            color: PlayOnTheme.divider,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
                         ),
                       ),
-                      trailing: isSelected ? const Icon(Icons.check_rounded, color: PlayOnTheme.purplePrimary) : null,
-                      onTap: () {
-                        context.read<MusicProvider>().setSpeed(spd);
-                        Navigator.pop(context);
-                      },
-                    );
-                  }),
-                ],
+                      const Text(
+                        'Velocidad de Reproducción',
+                        style: TextStyle(
+                          color: PlayOnTheme.textPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ...[0.75, 1.0, 1.25, 1.5, 1.75, 2.0].map((spd) {
+                        final currentSpd = context.read<MusicProvider>().speed;
+                        final isSelected = (currentSpd == spd);
+                        return ListTile(
+                          dense: true,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          tileColor: isSelected ? PlayOnTheme.purplePrimary.withValues(alpha: 0.12) : null,
+                          title: Text(
+                            '${spd}x ${spd == 1.0 ? "(Normal)" : ""}',
+                            style: TextStyle(
+                              color: isSelected ? PlayOnTheme.purpleGlow : PlayOnTheme.textPrimary,
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              fontSize: 15,
+                            ),
+                          ),
+                          trailing: isSelected
+                              ? const Icon(Icons.check_rounded, color: PlayOnTheme.purplePrimary, size: 22)
+                              : null,
+                          onTap: () {
+                            context.read<MusicProvider>().setSpeed(spd);
+                            Navigator.pop(context);
+                          },
+                        );
+                      }),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),

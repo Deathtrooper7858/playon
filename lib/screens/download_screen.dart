@@ -216,7 +216,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _buildLabel('URL DE YOUTUBE MUSIC O YOUTUBE'),
+              Flexible(child: _buildLabel('URL DE YOUTUBE MUSIC O YOUTUBE')),
               GestureDetector(
                 onTap: () async {
                   final data = await Clipboard.getData(Clipboard.kTextPlain);
@@ -757,6 +757,68 @@ class _DownloadScreenState extends State<DownloadScreen> {
 
         if (failed > 0) ...[
           const SizedBox(height: 12),
+          // Banner de solución rápida si fallaron canciones
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1B2A3A),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: PlayOnTheme.cyanAccent.withValues(alpha: 0.4)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.shield_outlined, color: PlayOnTheme.cyanAccent, size: 20),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '¿Canciones bloqueadas por YouTube?',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Si YouTube solicita verificación ("Sign in to confirm you are not a bot"), inicia sesión una sola vez para desbloquear todas las descargas.',
+                  style: TextStyle(color: PlayOnTheme.textSecondary, fontSize: 11.5),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      final result = await Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const YoutubeLoginScreen()),
+                      );
+                      if (result == true && mounted) {
+                        _loadCookieState();
+                        provider.retryFailedTracks();
+                      }
+                    },
+                    icon: const Icon(Icons.login_rounded, size: 16, color: Colors.white),
+                    label: const Text(
+                      'Iniciar sesión y reintentar',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12.5),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: PlayOnTheme.purplePrimary,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
@@ -799,6 +861,10 @@ class _DownloadScreenState extends State<DownloadScreen> {
   }
 
   Widget _buildErrorCard(DownloadProvider provider) {
+    final isBotError = provider.errorMessage.contains('bot') ||
+        provider.errorMessage.contains('Sign in') ||
+        provider.errorMessage.contains('bloqueó');
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -806,22 +872,55 @@ class _DownloadScreenState extends State<DownloadScreen> {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFFEF5350).withValues(alpha: 0.3)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.error_outline_rounded, color: Color(0xFFEF9A9A), size: 20),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              provider.errorMessage,
-              style: const TextStyle(color: Color(0xFFEF9A9A), fontSize: 13),
+          Row(
+            children: [
+              const Icon(Icons.error_outline_rounded, color: Color(0xFFEF9A9A), size: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  provider.errorMessage,
+                  style: const TextStyle(color: Color(0xFFEF9A9A), fontSize: 13),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh_rounded, color: Color(0xFFEF9A9A), size: 20),
+                onPressed: provider.reset,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              ),
+            ],
+          ),
+          if (isBotError) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  final result = await Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const YoutubeLoginScreen()),
+                  );
+                  if (result == true && mounted) {
+                    _loadCookieState();
+                  }
+                },
+                icon: const Icon(Icons.account_circle_rounded, size: 16, color: Colors.white),
+                label: const Text(
+                  'Iniciar sesión en YouTube para desbloquear',
+                  style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1B3A2A),
+                  side: const BorderSide(color: Color(0xFF4CAF50)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                ),
+              ),
             ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: Color(0xFFEF9A9A), size: 20),
-            onPressed: provider.reset,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-          ),
+          ],
         ],
       ),
     );
@@ -883,8 +982,8 @@ class _TrackRow extends StatelessWidget {
                     child: Text(
                       (track.error != null && track.error!.trim().isNotEmpty)
                           ? track.error!.trim()
-                          : 'Error desconocido al descargar',
-                      style: const TextStyle(color: Color(0xFFEF9A9A), fontSize: 10),
+                          : 'Error al descargar pista',
+                      style: const TextStyle(color: Color(0xFFEF9A9A), fontSize: 10.5),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -914,6 +1013,7 @@ class _CookieSheet extends StatefulWidget {
 
 class _CookieSheetState extends State<_CookieSheet> {
   late final TextEditingController _controller;
+  bool _showAdvanced = false;
 
   @override
   void initState() {
@@ -960,121 +1060,157 @@ class _CookieSheetState extends State<_CookieSheet> {
                 ),
               ),
             ),
-            const Text(
-              'Sesión de YouTube Music',
-              style: TextStyle(
-                color: PlayOnTheme.textPrimary,
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Inicia sesión o pega tus cookies para descargar playlists privadas y evitar bloqueos de YouTube.',
-              style: TextStyle(color: PlayOnTheme.textSecondary, fontSize: 13),
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _controller,
-              maxLines: 3,
-              style: const TextStyle(color: PlayOnTheme.textPrimary, fontSize: 12, fontFamily: 'monospace'),
-              decoration: InputDecoration(
-                hintText: 'VISITOR_INFO1_LIVE=...; YSC=...; GPS=...',
-                hintStyle: const TextStyle(color: PlayOnTheme.textTertiary, fontSize: 11),
-                filled: true,
-                fillColor: PlayOnTheme.bgSurface,
-                contentPadding: const EdgeInsets.all(12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: PlayOnTheme.divider),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: PlayOnTheme.divider),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(color: PlayOnTheme.purplePrimary, width: 1.5),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
             Row(
               children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () async {
-                      await CookieService.clearCookies();
-                      if (context.mounted) Navigator.pop(context, true);
-                    },
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: PlayOnTheme.textSecondary,
-                      side: const BorderSide(color: PlayOnTheme.divider),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    child: const Text('Borrar cookies'),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1B3A2A),
+                    borderRadius: BorderRadius.circular(10),
                   ),
+                  child: const Icon(Icons.verified_user_rounded, color: Color(0xFF4CAF50), size: 22),
                 ),
                 const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: PlayOnTheme.primaryGradient,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        final text = _controller.text.trim();
-                        await CookieService.saveCookies(text);
-                        if (context.mounted) Navigator.pop(context, true);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.transparent,
-                        shadowColor: Colors.transparent,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Sesión de YouTube',
+                        style: TextStyle(
+                          color: PlayOnTheme.textPrimary,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                      child: const Text(
-                        'Guardar cookies',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+                      Text(
+                        'Evita bloqueos y descarga tus playlists',
+                        style: TextStyle(color: PlayOnTheme.textSecondary, fontSize: 12),
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 20),
+
+            // Opción 1 (Recomendada): Iniciar sesión en navegador
             SizedBox(
               width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () async {
-                  Navigator.pop(context);
-                  final result = await Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const YoutubeLoginScreen()),
-                  );
-                  if (result == true) {
-                    // Session saved
-                  }
-                },
-                icon: const Icon(Icons.login, color: Colors.white, size: 18),
-                label: const Text(
-                  'Iniciar sesión automáticamente con navegador',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+              height: 52,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: PlayOnTheme.primaryGradient,
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: PlayOnTheme.glowShadow(blur: 14),
                 ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1B3A2A),
-                  foregroundColor: const Color(0xFF4CAF50),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: const BorderSide(color: Color(0xFF4CAF50)),
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    final result = await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const YoutubeLoginScreen()),
+                    );
+                    if (result == true && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Sesión guardada correctamente'),
+                          backgroundColor: Color(0xFF43A047),
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.open_in_browser_rounded, color: Colors.white, size: 20),
+                  label: const Text(
+                    'Iniciar sesión en YouTube (Recomendado)',
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5),
                   ),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
                 ),
               ),
             ),
+
+            const SizedBox(height: 14),
+
+            // Botón para borrar sesión si ya existe
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () async {
+                      await CookieService.clearCookies();
+                      if (context.mounted) Navigator.pop(context, true);
+                    },
+                    icon: const Icon(Icons.delete_outline_rounded, size: 16),
+                    label: const Text('Cerrar / Borrar sesión', style: TextStyle(fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: PlayOnTheme.textSecondary,
+                      side: const BorderSide(color: PlayOnTheme.divider),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: () => setState(() => _showAdvanced = !_showAdvanced),
+                  child: Text(
+                    _showAdvanced ? 'Ocultar cookies' : 'Manual...',
+                    style: const TextStyle(color: PlayOnTheme.textTertiary, fontSize: 11.5),
+                  ),
+                ),
+              ],
+            ),
+
+            // Opción 2: Pegar cookies manuales (colapsable)
+            if (_showAdvanced) ...[
+              const SizedBox(height: 16),
+              const Text(
+                'Pegar cookies manualmente (Formato Netscape o Header):',
+                style: TextStyle(color: PlayOnTheme.textSecondary, fontSize: 11.5, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _controller,
+                maxLines: 3,
+                style: const TextStyle(color: PlayOnTheme.textPrimary, fontSize: 11.5, fontFamily: 'monospace'),
+                decoration: InputDecoration(
+                  hintText: 'VISITOR_INFO1_LIVE=...; YSC=...; SID=...',
+                  hintStyle: const TextStyle(color: PlayOnTheme.textTertiary, fontSize: 11),
+                  filled: true,
+                  fillColor: PlayOnTheme.bgSurface,
+                  contentPadding: const EdgeInsets.all(12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: PlayOnTheme.divider),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    final text = _controller.text.trim();
+                    await CookieService.saveCookies(text);
+                    if (context.mounted) Navigator.pop(context, true);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: PlayOnTheme.bgSurface,
+                    foregroundColor: PlayOnTheme.textPrimary,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      side: const BorderSide(color: PlayOnTheme.divider),
+                    ),
+                  ),
+                  child: const Text('Guardar texto manual'),
+                ),
+              ),
+            ],
           ],
         ),
       ),
