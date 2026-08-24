@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -234,7 +233,6 @@ class DownloadProvider extends ChangeNotifier {
 
     final cookieString = await CookieService.getCookies();
     final normalizedUrl = _normalizeUrl(url);
-    final rng = Random();
 
     String resolvedPlaylistTitle = 'Descarga';
     List<DownloadedTrack> resolvedTracks = [];
@@ -281,8 +279,7 @@ class DownloadProvider extends ChangeNotifier {
           ));
         }
       } catch (eExplode) {
-        debugPrint('youtube_explode_dart no pudo resolver, usando motor yt-dlp nativo: $eExplode');
-        // Fallback a motor yt-dlp nativo
+        debugPrint('youtube_explode_dart no pudo resolver metadata, usando fallback yt-dlp: $eExplode');
         final info = await NativeYtDlpService.getPlaylistInfo(normalizedUrl, cookies: cookieString);
         resolvedPlaylistTitle = info.title;
         for (final t in info.tracks) {
@@ -296,151 +293,145 @@ class DownloadProvider extends ChangeNotifier {
           ));
         }
       }
-    } catch (eAll) {
-      _status = DownloadStatus.error;
-      _errorMessage = 'No se pudo resolver el enlace de YouTube Music.\nDetalle: $eAll';
-      NativeNotificationService.cancelNotification();
-      yt.close();
-      notifyListeners();
-      return;
-    } finally {
-      yt.close();
-    }
 
-    if (_cancelled) return;
+      if (_cancelled) return;
 
-    if (resolvedTracks.isEmpty) {
-      _status = DownloadStatus.error;
-      _errorMessage = 'No se encontraron canciones en el enlace especificado.';
-      notifyListeners();
-      return;
-    }
+      if (resolvedTracks.isEmpty) {
+        _status = DownloadStatus.error;
+        _errorMessage = 'No se encontraron canciones en el enlace especificado.';
+        notifyListeners();
+        return;
+      }
 
-    // ── 2. Preparar carpeta destino ──────────────────────────────────────────
-    final rawName = (customName?.trim().isNotEmpty == true)
-        ? customName!.trim()
-        : resolvedPlaylistTitle;
+      // ── 2. Preparar carpeta destino ──────────────────────────────────────────
+      final rawName = (customName?.trim().isNotEmpty == true)
+          ? customName!.trim()
+          : resolvedPlaylistTitle;
 
-    final folderName = rawName.replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_').trim();
-    _playlistName = folderName;
-    _total = resolvedTracks.length;
-    _status = DownloadStatus.downloading;
-    notifyListeners();
-
-    final baseDir = await _getMusicDirectory();
-    final playlistDir = Directory('${baseDir.path}/$folderName');
-    await playlistDir.create(recursive: true);
-
-    // ── 3. Descargar cada canción ───────────────────────────────────────────
-    for (int i = 0; i < resolvedTracks.length; i++) {
-      if (_cancelled) break;
-
-      final track = resolvedTracks[i];
-      _currentTrack = track.title;
-      _statusMessage = '';
+      final folderName = rawName.replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_').trim();
+      _playlistName = folderName;
+      _total = resolvedTracks.length;
+      _status = DownloadStatus.downloading;
       notifyListeners();
 
-      final safeTitle = track.title.replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_').trim();
-      final fileName = '${(i + 1).toString().padLeft(3, '0')} - $safeTitle.m4a';
-      final filePath = '${playlistDir.path}/$fileName';
+      final baseDir = await _getMusicDirectory();
+      final playlistDir = Directory('${baseDir.path}/$folderName');
+      await playlistDir.create(recursive: true);
 
-      // Si ya existe (reanudación)
-      if (File(filePath).existsSync() && File(filePath).lengthSync() > 1024) {
-        _downloaded++;
+      // ── 3. Descargar cada canción ───────────────────────────────────────────
+      for (int i = 0; i < resolvedTracks.length; i++) {
+        if (_cancelled) break;
+
+        final track = resolvedTracks[i];
+        _currentTrack = track.title;
+        _currentTrackProgress = 0.0;
+        _currentSpeed = '';
+        _statusMessage = 'Descargando audio...';
+        notifyListeners();
+
+        final safeTitle = track.title.replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_').trim();
+        final fileName = '${(i + 1).toString().padLeft(3, '0')} - $safeTitle.m4a';
+        final filePath = '${playlistDir.path}/$fileName';
+
+        // Si ya existe (reanudación)
+        if (File(filePath).existsSync() && File(filePath).lengthSync() > 1024) {
+          _downloaded++;
+          _completedTracks.add(DownloadedTrack(
+            id: track.id,
+            title: track.title,
+            artist: track.artist,
+            url: track.url,
+            thumbnailUrl: track.thumbnailUrl,
+            success: true,
+          ));
+          notifyListeners();
+          continue;
+        }
+
+        bool trackSuccess = false;
+        String? trackError;
+
+        try {
+          await NativeNotificationService.updateProgress(
+            title: 'Descargando "$_playlistName"',
+            text: '[${track.artist}] ${track.title} (${i + 1}/$_total)',
+            progress: i + 1,
+            max: _total,
+          );
+
+          await NativeYtDlpService.downloadAudio(
+            url: track.url,
+            outPath: filePath,
+            title: track.title,
+            artist: track.artist,
+            album: _playlistName,
+            thumbnailUrl: track.thumbnailUrl,
+            cookies: cookieString,
+          );
+
+          final savedFile = File(filePath);
+          if (savedFile.existsSync() && savedFile.lengthSync() > 1024) {
+            trackSuccess = true;
+            try {
+              await NativeMediaScannerService.scanFile(filePath);
+            } catch (_) {}
+          } else {
+            trackError = 'No se pudo generar el archivo';
+          }
+        } catch (e) {
+          final errStr = e.toString().replaceFirst('Exception: ', '');
+          if (errStr.contains('Sign in to confirm') || errStr.contains('bot')) {
+            trackError = 'YouTube bloqueó temporalmente. Toca "Sin sesión" arriba para validar.';
+          } else {
+            trackError = errStr;
+          }
+          debugPrint('Error descargando "${track.title}": $e');
+        }
+
         _completedTracks.add(DownloadedTrack(
           id: track.id,
           title: track.title,
           artist: track.artist,
           url: track.url,
           thumbnailUrl: track.thumbnailUrl,
-          success: true,
+          success: trackSuccess,
+          error: trackError,
         ));
+        _downloaded++;
+        _currentTrackProgress = 0.0;
+        _currentSpeed = '';
         notifyListeners();
-        continue;
+
+        // Pausa breve anti rate-limit
+        if (!_cancelled && i < resolvedTracks.length - 1) {
+          await Future.delayed(const Duration(milliseconds: 600));
+        }
       }
 
-      bool trackSuccess = false;
-      String? trackError;
-
-      try {
-        _statusMessage = 'Descargando audio...';
-        notifyListeners();
-
-        await NativeNotificationService.updateProgress(
-          title: 'Descargando "$_playlistName"',
-          text: '[$track.artist] $track.title (${i + 1}/$_total)',
-          progress: i + 1,
-          max: _total,
-        );
-
-        await NativeYtDlpService.downloadAudio(
-          url: track.url,
-          outPath: filePath,
-          title: track.title,
-          artist: track.artist,
-          album: _playlistName,
-          thumbnailUrl: track.thumbnailUrl,
-          cookies: cookieString,
-        );
-
-        // Verificar si el archivo se guardó correctamente
-        final savedFile = File(filePath);
-        if (savedFile.existsSync() && savedFile.lengthSync() > 1024) {
-          trackSuccess = true;
-          try {
-            await NativeMediaScannerService.scanFile(filePath);
-          } catch (_) {}
-        } else {
-          trackError = 'El archivo no se generó correctamente';
-        }
-      } catch (e) {
-        final errStr = e.toString().replaceFirst('Exception: ', '');
-        if (errStr.contains('Sign in to confirm') || errStr.contains('bot')) {
-          trackError = 'YouTube bloqueó la descarga temporalmente. Inicia sesión en YouTube desde el botón superior para resolverlo.';
-        } else {
-          trackError = errStr;
-        }
-        debugPrint('Error descargando "${track.title}": $e');
-      }
-
-      _completedTracks.add(DownloadedTrack(
-        id: track.id,
-        title: track.title,
-        artist: track.artist,
-        url: track.url,
-        thumbnailUrl: track.thumbnailUrl,
-        success: trackSuccess,
-        error: trackError,
-      ));
-      _downloaded++;
-      notifyListeners();
-
-      // Delay breve anti rate-limit
-      if (!_cancelled && i < resolvedTracks.length - 1) {
-        int delaySecs = 1 + rng.nextInt(2);
-        _statusMessage = 'Pausa breve...';
-        notifyListeners();
-        await Future.delayed(Duration(seconds: delaySecs));
+      // ── 4. Finalizado ───────────────────────────────────────────────────────
+      if (!_cancelled) {
+        _status = DownloadStatus.done;
         _statusMessage = '';
-        notifyListeners();
+        _currentSpeed = '';
+        _currentTrackProgress = 0.0;
+        final successfulCount = _completedTracks.where((t) => t.success).length;
+        await NativeNotificationService.finishProgress(
+          title: 'Descarga finalizada',
+          text: 'Se completaron $successfulCount de $_total canciones en "$_playlistName"',
+        );
+        if (successfulCount > 0) {
+          await _saveRecentDownload(_playlistName, resolvedPlaylistTitle, successfulCount);
+          await _musicProvider.loadSongs();
+        }
       }
+    } catch (eAll) {
+      _status = DownloadStatus.error;
+      _errorMessage = 'No se pudo procesar la descarga.\nDetalle: $eAll';
+      NativeNotificationService.cancelNotification();
+    } finally {
+      yt.close();
+      notifyListeners();
     }
-
-    // ── 4. Finalizado ───────────────────────────────────────────────────────
-    if (!_cancelled) {
-      _status = DownloadStatus.done;
-      _statusMessage = '';
-      final successfulCount = _completedTracks.where((t) => t.success).length;
-      await NativeNotificationService.finishProgress(
-        title: 'Descarga finalizada',
-        text: 'Se completaron $successfulCount de $_total canciones en "$_playlistName"',
-      );
-      if (successfulCount > 0) {
-        await _saveRecentDownload(_playlistName, resolvedPlaylistTitle, successfulCount);
-        await _musicProvider.loadSongs();
-      }
-    }
-    notifyListeners();
   }
 
   Future<void> retryFailedTracks() async {
@@ -455,12 +446,13 @@ class DownloadProvider extends ChangeNotifier {
     final cookieString = await CookieService.getCookies();
     final baseDir = await _getMusicDirectory();
     final playlistDir = Directory('${baseDir.path}/$_playlistName');
-    final rng = Random();
 
     for (final track in failed) {
       if (_cancelled) break;
 
       _currentTrack = track.title;
+      _currentTrackProgress = 0.0;
+      _currentSpeed = '';
       _statusMessage = 'Reintentando descarga...';
       notifyListeners();
 
@@ -514,11 +506,15 @@ class DownloadProvider extends ChangeNotifier {
       _completedTracks[index] = updatedTrack;
       notifyListeners();
 
-      await Future.delayed(Duration(seconds: 1 + rng.nextInt(2)));
+      if (!_cancelled) {
+        await Future.delayed(const Duration(milliseconds: 600));
+      }
     }
 
     _status = DownloadStatus.done;
     _statusMessage = '';
+    _currentSpeed = '';
+    _currentTrackProgress = 0.0;
     await _musicProvider.loadSongs();
     notifyListeners();
   }

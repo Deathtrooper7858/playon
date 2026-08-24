@@ -16,18 +16,22 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.playon"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        // minSdk 21 = Android 5.0 — máxima compatibilidad con Chaquopy + Flutter
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Necesario para proyectos grandes con muchos métodos (>64k)
+        multiDexEnabled = true
 
         ndk {
             abiFilters.clear()
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            // arm64-v8a  → dispositivos modernos (64-bit)
+            // armeabi-v7a → dispositivos antiguos/gama baja (32-bit)
+            // x86_64     → emuladores
+            // NOTA: armeabi-v7a requiere Python ≤ 3.11 en Chaquopy
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
     }
 
@@ -36,6 +40,10 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 }
@@ -52,7 +60,11 @@ flutter {
 
 chaquopy {
     defaultConfig {
-        version = "3.14"
+        // Python 3.11 = última versión compatible con armeabi-v7a (32-bit)
+        // Python 3.12+ no soporta ABIs 32-bit en Chaquopy
+        version = "3.11"
+        // Ruta al ejecutable Python 3.11 (instalado via winget)
+        buildPython = listOf("C:\\Users\\wrait\\AppData\\Local\\Programs\\Python\\Python311\\python.exe")
         pip {
             install("yt-dlp")
             install("mutagen")

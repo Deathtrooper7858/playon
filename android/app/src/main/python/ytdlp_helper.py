@@ -99,14 +99,6 @@ def _write_cookiefile(cookies_str):
         return None
 
 def _build_ydl_opts(extra_headers=None, cookie_file=None):
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-        'Sec-Fetch-Mode': 'navigate',
-    }
-    if extra_headers:
-        headers.update(extra_headers)
-
     opts = {
         'quiet': True,
         'no_warnings': True,
@@ -115,14 +107,13 @@ def _build_ydl_opts(extra_headers=None, cookie_file=None):
         'nocheckcertificate': True,
         'geo_bypass': True,
         'ignoreerrors': False,
-        'socket_timeout': 15,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'web'],
-            }
-        },
-        'http_headers': headers,
+        'socket_timeout': 20,
+        'retries': 3,
+        'fragment_retries': 3,
     }
+
+    if extra_headers:
+        opts['http_headers'] = extra_headers
 
     if cookie_file and os.path.exists(cookie_file):
         opts['cookiefile'] = cookie_file
@@ -213,17 +204,21 @@ def get_playlist_info(url, cookies_str=""):
                 pass
 
 def download_audio(url, out_path, title="", artist="", album="", thumbnail_url="", cookies_str=""):
-    import shutil
+    if out_path.endswith('.m4a'):
+        base_path = out_path[:-4]
+    else:
+        base_path = out_path
 
-    # Usar carpeta temporal interna de la app para descarga 100% libre de restricciones de permisos
-    temp_dir = tempfile.mkdtemp(prefix='playon_dl_', dir=_APP_TEMP_DIR if _APP_TEMP_DIR else None)
-    temp_base = os.path.join(temp_dir, 'audio')
+    # Asegurar que el directorio de destino exista
+    out_dir = os.path.dirname(out_path)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
 
     cookie_file = _write_cookiefile(cookies_str)
     ydl_opts = _build_ydl_opts(cookie_file=cookie_file)
     ydl_opts.update({
-        'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio/best[height<=480]/best',
-        'outtmpl': temp_base + '.%(ext)s',
+        'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio/best',
+        'outtmpl': base_path + '.%(ext)s',
         'noplaylist': True,
         'cachedir': False,
         'noprogress': True,
@@ -239,20 +234,29 @@ def download_audio(url, out_path, title="", artist="", album="", thumbnail_url="
             if not thumbnail_url and info:
                 thumbnail_url = info.get('thumbnail', '')
 
-        # Buscar el archivo descargado en el directorio temporal
-        downloaded_temp_file = None
-        for f in os.listdir(temp_dir):
-            full_f = os.path.join(temp_dir, f)
-            if os.path.isfile(full_f) and not f.endswith('.txt'):
-                downloaded_temp_file = full_f
-                break
+        # Asegurar archivo final en out_path
+        final_file = None
+        if os.path.exists(out_path):
+            final_file = out_path
+        else:
+            for ext in ('m4a', 'webm', 'opus', 'mp4', 'ogg', 'mp3'):
+                candidate = base_path + '.' + ext
+                if os.path.exists(candidate):
+                    if candidate != out_path:
+                        try:
+                            os.replace(candidate, out_path)
+                        except Exception:
+                            import shutil
+                            shutil.copy2(candidate, out_path)
+                    final_file = out_path
+                    break
 
-        if not downloaded_temp_file or not os.path.exists(downloaded_temp_file):
-            return "ERROR: no se pudo encontrar el archivo descargado en caché temporal"
+        if not final_file or not os.path.exists(final_file):
+            return "ERROR: archivo descargado no encontrado en " + base_path
 
-        # ── Incrustar etiquetas ID3 / MP4 y carátula (NO BLOQUEANTE) ─────
+        # ── Incrustar etiquetas ID3 / MP4 y carátula de álbum (NO BLOQUEANTE) ─────────
         try:
-            mp4 = MP4(downloaded_temp_file)
+            mp4 = MP4(final_file)
             if mp4.tags is None:
                 mp4.add_tags()
 
@@ -269,7 +273,7 @@ def download_audio(url, out_path, title="", artist="", album="", thumbnail_url="
                 try:
                     req = urllib.request.Request(
                         thumbnail_url,
-                        headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+                        headers={'User-Agent': 'Mozilla/5.0'}
                     )
                     with urllib.request.urlopen(req, timeout=5) as resp:
                         img_data = resp.read()
@@ -277,23 +281,11 @@ def download_audio(url, out_path, title="", artist="", album="", thumbnail_url="
                             covr_format = MP4Cover.FORMAT_PNG if thumbnail_url.endswith('.png') else MP4Cover.FORMAT_JPEG
                             mp4.tags['covr'] = [MP4Cover(img_data, imageformat=covr_format)]
                 except Exception as cover_err:
-                    print(f"PlayOn Info: carátula omitida ({cover_err})")
+                    print(f"Warning: could not embed cover art: {cover_err}")
 
             mp4.save()
         except Exception as tag_err:
-            print(f"PlayOn Info: metadatos MP4 omitidos ({tag_err})")
-
-        # ── Copiar el archivo final a la ruta de destino deseada ─────
-        out_dir = os.path.dirname(out_path)
-        if out_dir:
-            os.makedirs(out_dir, exist_ok=True)
-
-        try:
-            shutil.copy2(downloaded_temp_file, out_path)
-        except Exception as copy_err:
-            print(f"PlayOn Warning: fallo copy2 a {out_path}: {copy_err}, reintentando con buffer 64KB...")
-            with open(downloaded_temp_file, 'rb') as src, open(out_path, 'wb') as dst:
-                shutil.copyfileobj(src, dst, length=65536)
+            print(f"Warning: could not save mp4 tags: {tag_err}")
 
         return "SUCCESS"
     except Exception as e:
@@ -304,10 +296,6 @@ def download_audio(url, out_path, title="", artist="", album="", thumbnail_url="
                 os.remove(cookie_file)
             except Exception:
                 pass
-        try:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-        except Exception:
-            pass
 
 def get_audio_tags(file_path):
     try:

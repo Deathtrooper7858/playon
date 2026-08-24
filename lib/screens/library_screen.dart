@@ -324,8 +324,7 @@ class _SongsTab extends StatelessWidget {
                       isPlaying: isPlaying,
                       onTap: () {
                         final provider = context.read<MusicProvider>();
-                        final idx = provider.currentQueue.indexOf(song);
-                        provider.playSong(idx);
+                        provider.playCustomQueue(songs, i);
                         Navigator.push(
                           context,
                           MaterialPageRoute(builder: (_) => const NowPlayingScreen()),

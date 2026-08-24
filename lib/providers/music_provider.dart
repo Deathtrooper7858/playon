@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:on_audio_query/on_audio_query.dart' as oaq;
@@ -198,6 +199,13 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
   // ── Init ───────────────────────────────────────────────────────────────────
 
   Future<void> _init() async {
+    try {
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration.music());
+    } catch (e) {
+      debugPrint('Error configuring audio session: $e');
+    }
+
     // Position stream: throttled to _positionThrottleMs to avoid rebuilding
     // UI 10× per second. Only notifies if enough time has elapsed.
     _subscriptions.add(
@@ -343,25 +351,23 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     final sources = _currentQueue
         .map((song) {
-          // Use content URI for album art — works on Android 10+
-          // Falls back to null (no artwork) rather than crashing the service
-          Uri? artUri;
-          try {
-            artUri = Uri.parse(
-              'content://media/external/audio/media/${song.id}/albumart',
-            );
-          } catch (_) {
-            artUri = null;
-          }
+          final uri = (song.uri.startsWith('content://') ||
+                  song.uri.startsWith('http://') ||
+                  song.uri.startsWith('https://') ||
+                  song.uri.startsWith('file://'))
+              ? Uri.parse(song.uri)
+              : Uri.file(song.filePath.isNotEmpty ? song.filePath : song.uri);
 
           return AudioSource.uri(
-            Uri.parse(song.uri),
+            uri,
             tag: MediaItem(
               id: song.id.toString(),
               title: song.title,
               artist: song.artist,
               album: song.album,
-              artUri: artUri,
+              artUri: null,
+              duration: Duration(milliseconds: song.duration),
+              playable: true,
             ),
           );
         })
@@ -379,7 +385,7 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> playSong(int index) async {
     if (index < 0 || index >= _currentQueue.length) return;
 
-    if (_player.sequence.isEmpty) {
+    if (_player.sequence.isEmpty || _player.sequence.length != _currentQueue.length) {
       await _updatePlaylist(initialIndex: index);
     }
 

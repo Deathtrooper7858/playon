@@ -20,6 +20,7 @@ Future<void> main() async {
     androidNotificationChannelName: 'PlayOn Audio',
     androidShowNotificationBadge: true,
     androidNotificationIcon: 'drawable/ic_notification',
+    androidNotificationOngoing: false,
     androidStopForegroundOnPause: false,
     preloadArtwork: false,
   );
