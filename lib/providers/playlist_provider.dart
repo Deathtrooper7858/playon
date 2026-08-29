@@ -72,6 +72,24 @@ class PlaylistProvider extends ChangeNotifier {
     }
   }
 
+  Future<void> addSongsToPlaylist(int playlistId, List<int> songIds) async {
+    try {
+      await PlaylistDb.instance.addSongsToPlaylist(playlistId, songIds);
+      await loadPlaylists();
+    } catch (e) {
+      debugPrint('Error adding songs to playlist: $e');
+    }
+  }
+
+  Future<void> clearPlaylist(int playlistId) async {
+    try {
+      await PlaylistDb.instance.clearPlaylist(playlistId);
+      await loadPlaylists();
+    } catch (e) {
+      debugPrint('Error clearing playlist: $e');
+    }
+  }
+
   Future<void> removeSongFromPlaylist(int playlistId, int songId) async {
     try {
       await PlaylistDb.instance.removeSongFromPlaylist(playlistId, songId);

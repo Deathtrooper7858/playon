@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/song_model.dart';
@@ -6,10 +5,10 @@ import '../providers/music_provider.dart';
 import '../services/file_management_service.dart';
 import '../theme.dart';
 import '../widgets/add_to_playlist_dialog.dart';
-import '../widgets/edit_tags_dialog.dart';
-import '../widgets/equalizer_bars.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/move_to_folder_sheet.dart';
+import '../widgets/song_tile.dart';
+import 'library_tabs/song_options_helper.dart';
 import 'now_playing_screen.dart';
 
 class FolderDetailScreen extends StatefulWidget {
@@ -46,6 +45,19 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
         _selectedSongIds.clear();
       } else {
         _selectedSongIds.addAll(songs.map((s) => s.id));
+      }
+    });
+  }
+
+  void _toggleSongSelection(int id) {
+    setState(() {
+      if (_selectedSongIds.contains(id)) {
+        _selectedSongIds.remove(id);
+        if (_selectedSongIds.isEmpty) {
+          _isSelectionMode = false;
+        }
+      } else {
+        _selectedSongIds.add(id);
       }
     });
   }
@@ -126,7 +138,7 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: PlayOnTheme.pinkAccent),
+            Icon(Icons.warning_amber_rounded, color: Color(0xFFEF5350)),
             SizedBox(width: 10),
             Text('Eliminar carpeta', style: TextStyle(color: PlayOnTheme.textPrimary, fontWeight: FontWeight.bold)),
           ],
@@ -142,7 +154,7 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: PlayOnTheme.pinkAccent,
+              backgroundColor: const Color(0xFFEF5350),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             ),
             onPressed: () => Navigator.pop(ctx, true),
@@ -154,7 +166,10 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
 
     if (confirmed == true) {
       try {
-        await FileManagementService.deleteFolder(folderPath: currentPath, songsInFolder: songs);
+        await FileManagementService.deleteFolder(
+          folderPath: currentPath,
+          songsInFolder: songs,
+        );
         if (!mounted) return;
         final provider = context.read<MusicProvider>();
         final navigator = Navigator.of(context);
@@ -179,210 +194,148 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
     }
   }
 
-  Future<void> _renameSongDialog(PlayOnSong song) async {
-    final currentFileName = File(song.filePath).uri.pathSegments.last;
-    final baseName = currentFileName.contains('.')
-        ? currentFileName.substring(0, currentFileName.lastIndexOf('.'))
-        : currentFileName;
-
-    final controller = TextEditingController(text: baseName);
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: PlayOnTheme.bgCard,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Renombrar archivo', style: TextStyle(color: PlayOnTheme.textPrimary, fontWeight: FontWeight.bold)),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          style: const TextStyle(color: PlayOnTheme.textPrimary),
-          decoration: const InputDecoration(
-            hintText: 'Nuevo nombre de archivo',
-            hintStyle: TextStyle(color: PlayOnTheme.textTertiary),
-            enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: PlayOnTheme.divider)),
-            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: PlayOnTheme.purplePrimary)),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar', style: TextStyle(color: PlayOnTheme.textSecondary)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: PlayOnTheme.purplePrimary,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Renombrar', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true && controller.text.trim().isNotEmpty) {
-      try {
-        await FileManagementService.renameSongFile(
-          song: song,
-          newFileNameWithoutExtension: controller.text.trim(),
-        );
-        if (!mounted) return;
-        final provider = context.read<MusicProvider>();
-        final messenger = ScaffoldMessenger.of(context);
-        await provider.loadSongs();
-        messenger.showSnackBar(
-          const SnackBar(
-            backgroundColor: PlayOnTheme.bgCard,
-            content: Text('Archivo renombrado', style: TextStyle(color: PlayOnTheme.textPrimary)),
-          ),
-        );
-      } catch (e) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: PlayOnTheme.bgCard,
-            content: Text('Error al renombrar: $e', style: const TextStyle(color: PlayOnTheme.pinkAccent)),
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _deleteSongDialog(PlayOnSong song) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: PlayOnTheme.bgCard,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Eliminar archivo', style: TextStyle(color: PlayOnTheme.textPrimary, fontWeight: FontWeight.bold)),
-        content: Text(
-          '¿Deseas eliminar permanentemente "${song.title}" de tu dispositivo?',
-          style: const TextStyle(color: PlayOnTheme.textSecondary),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar', style: TextStyle(color: PlayOnTheme.textSecondary)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: PlayOnTheme.pinkAccent,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Eliminar', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      await FileManagementService.deleteSong(song);
-      if (!mounted) return;
-      final provider = context.read<MusicProvider>();
-      final messenger = ScaffoldMessenger.of(context);
-      await provider.loadSongs();
-      messenger.showSnackBar(
-        SnackBar(
-          backgroundColor: PlayOnTheme.bgCard,
-          content: Text('"${song.title}" eliminada', style: const TextStyle(color: PlayOnTheme.textPrimary)),
-        ),
-      );
-    }
-  }
-
-  Future<void> _deleteSelectedBatch(List<PlayOnSong> allFolderSongs) async {
-    final selectedSongs = allFolderSongs.where((s) => _selectedSongIds.contains(s.id)).toList();
-    if (selectedSongs.isEmpty) return;
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: PlayOnTheme.bgCard,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Eliminar canciones', style: TextStyle(color: PlayOnTheme.textPrimary, fontWeight: FontWeight.bold)),
-        content: Text(
-          '¿Deseas eliminar permanentemente las ${selectedSongs.length} canciones seleccionadas?',
-          style: const TextStyle(color: PlayOnTheme.textSecondary),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancelar', style: TextStyle(color: PlayOnTheme.textSecondary)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: PlayOnTheme.pinkAccent,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Eliminar', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      final count = await FileManagementService.deleteSongs(selectedSongs);
-      if (!mounted) return;
-      final provider = context.read<MusicProvider>();
-      final messenger = ScaffoldMessenger.of(context);
-      setState(() {
-        _selectedSongIds.clear();
-        _isSelectionMode = false;
-      });
-      await provider.loadSongs();
-      messenger.showSnackBar(
-        SnackBar(
-          backgroundColor: PlayOnTheme.bgCard,
-          content: Text('$count canciones eliminadas', style: const TextStyle(color: PlayOnTheme.textPrimary)),
-        ),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<MusicProvider>();
-    final songs = _getFolderSongs(provider);
-    final folderPath = songs.isNotEmpty && songs.first.folderPath != null ? songs.first.folderPath! : '';
+    return Consumer<MusicProvider>(
+      builder: (context, provider, _) {
+        final folderSongs = _getFolderSongs(provider);
+        final folderPath = folderSongs.isNotEmpty ? (folderSongs.first.folderPath ?? '') : '';
 
-    return Scaffold(
-      backgroundColor: PlayOnTheme.bgDeep,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
-          color: PlayOnTheme.textSecondary,
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          _isSelectionMode ? '${_selectedSongIds.length} seleccionadas' : widget.folderName,
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
-        ),
-        actions: [
-          if (songs.isNotEmpty) ...[
-            IconButton(
-              icon: Icon(
-                _isSelectionMode ? Icons.close_rounded : Icons.checklist_rounded,
-                color: _isSelectionMode ? PlayOnTheme.pinkAccent : PlayOnTheme.purpleGlow,
-              ),
-              onPressed: () {
+        return Scaffold(
+          backgroundColor: PlayOnTheme.bgDeep,
+          body: SafeArea(
+            child: Column(
+              children: [
+                // Top Custom App Bar
+                _buildAppBar(context, folderPath, folderSongs),
+
+                // Folder Header Card
+                _buildHeaderCard(context, folderSongs, folderPath, provider),
+
+                // Songs List
+                Expanded(
+                  child: folderSongs.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'Esta carpeta no contiene canciones',
+                            style: TextStyle(color: PlayOnTheme.textSecondary),
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.only(bottom: 90),
+                          physics: const BouncingScrollPhysics(),
+                          itemCount: folderSongs.length,
+                          itemBuilder: (context, index) {
+                            final song = folderSongs[index];
+                            final isCurrent = provider.currentSong?.id == song.id;
+                            final isSelected = _selectedSongIds.contains(song.id);
+
+                            return SongTile(
+                              song: song,
+                              isCurrent: isCurrent,
+                              isPlaying: provider.isPlaying,
+                              isSelectionMode: _isSelectionMode,
+                              isSelected: isSelected,
+                              onTap: () {
+                                if (_isSelectionMode) {
+                                  _toggleSongSelection(song.id);
+                                } else {
+                                  provider.playFolder(widget.folderName, initialIndex: index);
+                                }
+                              },
+                              onSelectChanged: (_) => _toggleSongSelection(song.id),
+                              onOptionsTap: () => SongOptionsHelper.showSongOptions(context, song),
+                            );
+                          },
+                        ),
+                ),
+
+                // Mini Player
+                _MiniPlayerSlot(
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const NowPlayingScreen()),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAppBar(BuildContext context, String folderPath, List<PlayOnSong> folderSongs) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 4),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, color: PlayOnTheme.textPrimary, size: 20),
+            onPressed: () {
+              if (_isSelectionMode) {
                 setState(() {
-                  _isSelectionMode = !_isSelectionMode;
+                  _isSelectionMode = false;
                   _selectedSongIds.clear();
                 });
-              },
+              } else {
+                Navigator.pop(context);
+              }
+            },
+          ),
+          Expanded(
+            child: Text(
+              _isSelectionMode ? '${_selectedSongIds.length} seleccionadas' : widget.folderName,
+              style: const TextStyle(
+                color: PlayOnTheme.textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (_isSelectionMode) ...[
+            TextButton(
+              onPressed: () => _toggleSelectAll(folderSongs),
+              child: Text(
+                _selectedSongIds.length == folderSongs.length ? 'Desmarcar' : 'Todas',
+                style: const TextStyle(color: PlayOnTheme.purpleGlow),
+              ),
+            ),
+            if (_selectedSongIds.isNotEmpty) ...[
+              IconButton(
+                icon: const Icon(Icons.playlist_add_rounded, color: PlayOnTheme.pinkAccent),
+                onPressed: () {
+                  final selected = folderSongs.where((s) => _selectedSongIds.contains(s.id)).toList();
+                  AddToPlaylistDialog.showBatch(context, selected);
+                  setState(() => _isSelectionMode = false);
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.drive_file_move_rounded, color: PlayOnTheme.amberWarning),
+                onPressed: () {
+                  final selected = folderSongs.where((s) => _selectedSongIds.contains(s.id)).toList();
+                  MoveToFolderSheet.showBatch(context, songs: selected);
+                  setState(() => _isSelectionMode = false);
+                },
+              ),
+            ],
+          ] else ...[
+            IconButton(
+              icon: const Icon(Icons.checklist_rounded, color: PlayOnTheme.textSecondary),
+              tooltip: 'Selección múltiple',
+              onPressed: () => setState(() => _isSelectionMode = true),
             ),
             PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert_rounded, color: PlayOnTheme.textSecondary),
               color: PlayOnTheme.bgCard,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               onSelected: (val) {
-                if (val == 'rename') {
-                  _renameFolderDialog(folderPath, songs);
-                } else if (val == 'delete') {
-                  _deleteFolderDialog(folderPath, songs);
+                if (val == 'rename' && folderPath.isNotEmpty) {
+                  _renameFolderDialog(folderPath, folderSongs);
+                } else if (val == 'delete' && folderPath.isNotEmpty) {
+                  _deleteFolderDialog(folderPath, folderSongs);
                 }
               },
               itemBuilder: (_) => [
@@ -390,8 +343,8 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
                   value: 'rename',
                   child: Row(
                     children: [
-                      Icon(Icons.edit_rounded, color: PlayOnTheme.cyanAccent, size: 18),
-                      SizedBox(width: 12),
+                      Icon(Icons.edit_rounded, color: PlayOnTheme.purpleGlow, size: 18),
+                      SizedBox(width: 10),
                       Text('Renombrar carpeta', style: TextStyle(color: PlayOnTheme.textPrimary)),
                     ],
                   ),
@@ -400,9 +353,9 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
                   value: 'delete',
                   child: Row(
                     children: [
-                      Icon(Icons.delete_outline_rounded, color: PlayOnTheme.pinkAccent, size: 18),
-                      SizedBox(width: 12),
-                      Text('Eliminar carpeta', style: TextStyle(color: PlayOnTheme.pinkAccent)),
+                      Icon(Icons.delete_outline_rounded, color: Color(0xFFEF5350), size: 18),
+                      SizedBox(width: 10),
+                      Text('Eliminar carpeta', style: TextStyle(color: Color(0xFFEF5350))),
                     ],
                   ),
                 ),
@@ -411,422 +364,108 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
           ],
         ],
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: songs.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.folder_off_rounded, size: 48, color: PlayOnTheme.purpleDim),
-                          const SizedBox(height: 12),
-                          const Text('No hay canciones en esta carpeta', style: TextStyle(color: PlayOnTheme.textSecondary)),
-                          const SizedBox(height: 16),
-                          ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: PlayOnTheme.purplePrimary,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
-                            label: const Text('Volver a Carpetas', style: TextStyle(color: Colors.white)),
-                            onPressed: () => Navigator.pop(context),
-                          ),
-                        ],
-                      ),
-                    )
-                  : ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                      children: [
-                        // Card de Información de la Carpeta
-                        Container(
-                          padding: const EdgeInsets.all(18),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                PlayOnTheme.purplePrimary.withValues(alpha: 0.25),
-                                PlayOnTheme.bgCard,
-                              ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: PlayOnTheme.glassBorder),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(12),
-                                    decoration: BoxDecoration(
-                                      color: PlayOnTheme.purplePrimary.withValues(alpha: 0.3),
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                    child: const Icon(Icons.folder_rounded, color: PlayOnTheme.purpleGlow, size: 28),
-                                  ),
-                                  const SizedBox(width: 14),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          widget.folderName,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          '${songs.length} pistas • ${_formatTotalDuration(songs)}',
-                                          style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 12),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              if (folderPath.isNotEmpty) ...[
-                                const SizedBox(height: 12),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                  decoration: BoxDecoration(
-                                    color: PlayOnTheme.bgSurface.withValues(alpha: 0.6),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      const Icon(Icons.folder_open_rounded, color: PlayOnTheme.textTertiary, size: 14),
-                                      const SizedBox(width: 6),
-                                      Expanded(
-                                        child: Text(
-                                          folderPath,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(color: PlayOnTheme.textTertiary, fontSize: 11),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                              const SizedBox(height: 16),
+    );
+  }
 
-                              // Botones de Reproducción
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: ElevatedButton.icon(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: PlayOnTheme.purplePrimary,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                      ),
-                                      icon: const Icon(Icons.play_arrow_rounded, color: Colors.white),
-                                      label: const Text('Reproducir', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                      onPressed: () {
-                                        provider.selectFolder(widget.folderName);
-                                        provider.playSong(0);
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(builder: (_) => const NowPlayingScreen()),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: PlayOnTheme.pinkAccent,
-                                        side: const BorderSide(color: PlayOnTheme.pinkAccent),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                        padding: const EdgeInsets.symmetric(vertical: 12),
-                                      ),
-                                      icon: const Icon(Icons.shuffle_rounded, color: PlayOnTheme.pinkAccent),
-                                      label: const Text('Aleatorio', style: TextStyle(fontWeight: FontWeight.bold)),
-                                      onPressed: () {
-                                        provider.selectFolder(widget.folderName);
-                                        if (!provider.isShuffle) provider.toggleShuffle();
-                                        provider.playSong(0);
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(builder: (_) => const NowPlayingScreen()),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(height: 16),
-
-                        if (_isSelectionMode) ...[
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Row(
-                              children: [
-                                TextButton.icon(
-                                  icon: Icon(
-                                    _selectedSongIds.length == songs.length
-                                        ? Icons.check_box_rounded
-                                        : Icons.check_box_outline_blank_rounded,
-                                    color: PlayOnTheme.purpleGlow,
-                                    size: 20,
-                                  ),
-                                  label: Text(
-                                    _selectedSongIds.length == songs.length ? 'Deseleccionar todo' : 'Seleccionar todo',
-                                    style: const TextStyle(color: PlayOnTheme.purpleGlow),
-                                  ),
-                                  onPressed: () => _toggleSelectAll(songs),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-
-                        // Lista de canciones
-                        ...List.generate(songs.length, (idx) {
-                          final song = songs[idx];
-                          final isSelected = _selectedSongIds.contains(song.id);
-                          final isCurrent = provider.currentSong?.id == song.id;
-
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 6),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? PlayOnTheme.purpleDim.withValues(alpha: 0.3)
-                                  : (isCurrent ? PlayOnTheme.purplePrimary.withValues(alpha: 0.1) : PlayOnTheme.bgCard),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: isCurrent
-                                    ? PlayOnTheme.purplePrimary.withValues(alpha: 0.5)
-                                    : PlayOnTheme.glassBorder,
-                              ),
-                            ),
-                            child: ListTile(
-                              dense: true,
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                              leading: _isSelectionMode
-                                  ? Checkbox(
-                                      value: isSelected,
-                                      activeColor: PlayOnTheme.purplePrimary,
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                                      onChanged: (val) {
-                                        setState(() {
-                                          if (val == true) {
-                                            _selectedSongIds.add(song.id);
-                                          } else {
-                                            _selectedSongIds.remove(song.id);
-                                          }
-                                        });
-                                      },
-                                    )
-                                  : Container(
-                                      width: 36,
-                                      height: 36,
-                                      decoration: BoxDecoration(
-                                        color: PlayOnTheme.bgSurface,
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: isCurrent && provider.isPlaying
-                                          ? const Center(child: EqualizerBars(isPlaying: true))
-                                          : Center(
-                                              child: Text(
-                                                '${idx + 1}',
-                                                style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.bold),
-                                              ),
-                                            ),
-                                    ),
-                              title: Text(
-                                song.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: isCurrent ? PlayOnTheme.purpleGlow : PlayOnTheme.textPrimary,
-                                  fontWeight: isCurrent ? FontWeight.bold : FontWeight.w500,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              subtitle: Text(
-                                '${song.artist} • ${song.durationFormatted}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 11),
-                              ),
-                              trailing: _isSelectionMode
-                                  ? null
-                                  : PopupMenuButton<String>(
-                                      icon: const Icon(Icons.more_vert_rounded, color: PlayOnTheme.textSecondary, size: 20),
-                                      color: PlayOnTheme.bgCard,
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                      onSelected: (val) {
-                                        if (val == 'move') {
-                                          MoveToFolderSheet.show(context, songs: [song]);
-                                        } else if (val == 'rename') {
-                                          _renameSongDialog(song);
-                                        } else if (val == 'delete') {
-                                          _deleteSongDialog(song);
-                                        } else if (val == 'playlist') {
-                                          AddToPlaylistDialog.show(context, song);
-                                        } else if (val == 'tags') {
-                                          EditTagsDialog.show(context, song);
-                                        }
-                                      },
-                                      itemBuilder: (_) => [
-                                        const PopupMenuItem(
-                                          value: 'move',
-                                          child: Row(
-                                            children: [
-                                              Icon(Icons.drive_file_move_rounded, color: PlayOnTheme.cyanAccent, size: 18),
-                                              SizedBox(width: 12),
-                                              Text('Mover a otra carpeta', style: TextStyle(color: PlayOnTheme.textPrimary)),
-                                            ],
-                                          ),
-                                        ),
-                                        const PopupMenuItem(
-                                          value: 'rename',
-                                          child: Row(
-                                            children: [
-                                              Icon(Icons.drive_file_rename_outline_rounded, color: PlayOnTheme.purpleGlow, size: 18),
-                                              SizedBox(width: 12),
-                                              Text('Renombrar archivo', style: TextStyle(color: PlayOnTheme.textPrimary)),
-                                            ],
-                                          ),
-                                        ),
-                                        const PopupMenuItem(
-                                          value: 'playlist',
-                                          child: Row(
-                                            children: [
-                                              Icon(Icons.playlist_add_rounded, color: PlayOnTheme.emeraldActive, size: 18),
-                                              SizedBox(width: 12),
-                                              Text('Añadir a Playlist', style: TextStyle(color: PlayOnTheme.textPrimary)),
-                                            ],
-                                          ),
-                                        ),
-                                        const PopupMenuItem(
-                                          value: 'tags',
-                                          child: Row(
-                                            children: [
-                                              Icon(Icons.edit_note_rounded, color: PlayOnTheme.amberWarning, size: 18),
-                                              SizedBox(width: 12),
-                                              Text('Editar etiquetas ID3', style: TextStyle(color: PlayOnTheme.textPrimary)),
-                                            ],
-                                          ),
-                                        ),
-                                        const PopupMenuItem(
-                                          value: 'delete',
-                                          child: Row(
-                                            children: [
-                                              Icon(Icons.delete_outline_rounded, color: PlayOnTheme.pinkAccent, size: 18),
-                                              SizedBox(width: 12),
-                                              Text('Eliminar archivo', style: TextStyle(color: PlayOnTheme.pinkAccent)),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                              onTap: () {
-                                if (_isSelectionMode) {
-                                  setState(() {
-                                    if (isSelected) {
-                                      _selectedSongIds.remove(song.id);
-                                    } else {
-                                      _selectedSongIds.add(song.id);
-                                    }
-                                  });
-                                } else {
-                                  provider.selectFolder(widget.folderName);
-                                  provider.playSong(idx);
-                                }
-                              },
-                            ),
-                          );
-                        }),
-                      ],
-                    ),
+  Widget _buildHeaderCard(
+    BuildContext context,
+    List<PlayOnSong> folderSongs,
+    String folderPath,
+    MusicProvider provider,
+  ) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: PlayOnTheme.bgCard,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: PlayOnTheme.glassBorder),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              gradient: PlayOnTheme.cyanGradient,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: PlayOnTheme.glowShadow(color: PlayOnTheme.cyanAccent, blur: 12),
             ),
-
-            // Barra inferior para selección múltiple (Batch operations)
-            if (_isSelectionMode && _selectedSongIds.isNotEmpty) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                decoration: BoxDecoration(
-                  color: PlayOnTheme.bgCard,
-                  border: const Border(top: BorderSide(color: PlayOnTheme.divider)),
-                  boxShadow: PlayOnTheme.glowShadow(blur: 16),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: PlayOnTheme.cyanAccent,
-                          foregroundColor: Colors.black,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        icon: const Icon(Icons.drive_file_move_rounded, size: 18),
-                        label: Text(
-                          'Mover (${_selectedSongIds.length})',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        onPressed: () {
-                          final selectedSongs = songs.where((s) => _selectedSongIds.contains(s.id)).toList();
-                          MoveToFolderSheet.show(
-                            context,
-                            songs: selectedSongs,
-                            onMoved: () {
-                              setState(() {
-                                _selectedSongIds.clear();
-                                _isSelectionMode = false;
-                              });
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: PlayOnTheme.pinkAccent.withValues(alpha: 0.2),
-                        foregroundColor: PlayOnTheme.pinkAccent,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                        side: const BorderSide(color: PlayOnTheme.pinkAccent),
-                      ),
-                      icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                      label: const Text('Eliminar', style: TextStyle(fontWeight: FontWeight.bold)),
-                      onPressed: () => _deleteSelectedBatch(songs),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-
-            // Mini Player Slot
-            Consumer<MusicProvider>(
-              builder: (_, p, __) {
-                if (p.currentSong == null) return const SizedBox.shrink();
-                return MiniPlayer(
-                  provider: p,
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const NowPlayingScreen()),
+            child: const Icon(Icons.folder_rounded, color: Colors.white, size: 30),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.folderName,
+                  style: const TextStyle(
+                    color: PlayOnTheme.textPrimary,
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
                   ),
-                );
-              },
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${folderSongs.length} canciones • ${_formatTotalDuration(folderSongs)}',
+                  style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 12.5),
+                ),
+              ],
+            ),
+          ),
+          if (folderSongs.isNotEmpty) ...[
+            GestureDetector(
+              onTap: () => provider.playFolder(widget.folderName, shuffle: true),
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: PlayOnTheme.bgSurface,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: PlayOnTheme.glassBorder),
+                ),
+                child: const Icon(Icons.shuffle_rounded, color: PlayOnTheme.pinkAccent, size: 20),
+              ),
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () => provider.playFolder(widget.folderName, initialIndex: 0),
+              child: Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  gradient: PlayOnTheme.primaryGradient,
+                  shape: BoxShape.circle,
+                  boxShadow: PlayOnTheme.glowShadow(blur: 10),
+                ),
+                child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 26),
+              ),
             ),
           ],
-        ),
+        ],
       ),
+    );
+  }
+}
+
+class _MiniPlayerSlot extends StatelessWidget {
+  final VoidCallback onTap;
+  const _MiniPlayerSlot({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<MusicProvider, PlayOnSong?>(
+      selector: (_, p) => p.currentSong,
+      builder: (_, song, __) {
+        if (song == null) return const SizedBox.shrink();
+        return MiniPlayer(
+          provider: context.read<MusicProvider>(),
+          onTap: onTap,
+        );
+      },
     );
   }
 }

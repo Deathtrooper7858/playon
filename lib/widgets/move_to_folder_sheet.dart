@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:on_audio_query/on_audio_query.dart';
 import 'package:provider/provider.dart';
 import '../models/song_model.dart';
 import '../providers/music_provider.dart';
@@ -17,6 +18,21 @@ class MoveToFolderSheet extends StatefulWidget {
   });
 
   static Future<void> show(
+    BuildContext context, {
+    PlayOnSong? song,
+    List<PlayOnSong>? songs,
+    VoidCallback? onMoved,
+  }) {
+    final targetSongs = songs ?? (song != null ? [song] : <PlayOnSong>[]);
+    return showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => MoveToFolderSheet(songs: targetSongs, onMoved: onMoved),
+    );
+  }
+
+  static Future<void> showBatch(
     BuildContext context, {
     required List<PlayOnSong> songs,
     VoidCallback? onMoved,
@@ -120,6 +136,10 @@ class _MoveToFolderSheetState extends State<MoveToFolderSheet> {
     final folderMap = _getAvailableFolders(provider.allSongs);
     final count = widget.songs.length;
 
+    if (count == 0) {
+      return const SizedBox.shrink();
+    }
+
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       child: BackdropFilter(
@@ -154,13 +174,28 @@ class _MoveToFolderSheetState extends State<MoveToFolderSheet> {
                   // Header
                   Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: PlayOnTheme.cyanAccent.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(12),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: QueryArtworkWidget(
+                          id: widget.songs.first.id,
+                          type: ArtworkType.AUDIO,
+                          format: ArtworkFormat.JPEG,
+                          artworkQuality: FilterQuality.low,
+                          size: 150,
+                          artworkWidth: 44,
+                          artworkHeight: 44,
+                          nullArtworkWidget: Container(
+                            width: 44,
+                            height: 44,
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: PlayOnTheme.cyanAccent.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(Icons.drive_file_move_rounded, color: PlayOnTheme.cyanAccent, size: 22),
+                          ),
+                          keepOldArtwork: true,
                         ),
-                        child: const Icon(Icons.drive_file_move_rounded, color: PlayOnTheme.cyanAccent, size: 22),
                       ),
                       const SizedBox(width: 14),
                       Expanded(

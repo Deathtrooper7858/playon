@@ -410,9 +410,11 @@ class _DownloadScreenState extends State<DownloadScreen> {
           tooltip: 'Reproducir carpeta',
           onPressed: () {
             final musicProv = context.read<MusicProvider>();
-            musicProv.selectFolder(item.folderName);
-            musicProv.playSong(0);
-            Navigator.push(context, MaterialPageRoute(builder: (_) => const NowPlayingScreen()));
+            final songs = musicProv.allSongs.where((s) => s.folderName == item.folderName).toList();
+            if (songs.isNotEmpty) {
+              musicProv.playCustomQueue(songs, 0);
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const NowPlayingScreen()));
+            }
           },
         ),
       ),
@@ -717,9 +719,11 @@ class _DownloadScreenState extends State<DownloadScreen> {
                 child: ElevatedButton.icon(
                   onPressed: () {
                     final musicProv = context.read<MusicProvider>();
-                    musicProv.selectFolder(provider.playlistName);
-                    musicProv.playSong(0);
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const NowPlayingScreen()));
+                    final songs = musicProv.allSongs.where((s) => s.folderName == provider.playlistName).toList();
+                    if (songs.isNotEmpty) {
+                      musicProv.playCustomQueue(songs, 0);
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const NowPlayingScreen()));
+                    }
                   },
                   icon: const Icon(Icons.play_arrow_rounded, color: Colors.white),
                   label: const Text(

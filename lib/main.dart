@@ -21,7 +21,7 @@ Future<void> main() async {
     androidShowNotificationBadge: true,
     androidNotificationIcon: 'drawable/ic_notification',
     androidNotificationOngoing: false,
-    androidStopForegroundOnPause: false,
+    androidStopForegroundOnPause: true,
     preloadArtwork: false,
   );
 

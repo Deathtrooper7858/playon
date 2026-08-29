@@ -127,6 +127,33 @@ class PlaylistDb {
     }
   }
 
+  Future<void> addSongsToPlaylist(int playlistId, List<int> songIds) async {
+    if (songIds.isEmpty) return;
+    final db = await database;
+    final existingIds = await getSongIdsForPlaylist(playlistId);
+    final existingSet = existingIds.toSet();
+    
+    final batch = db.batch();
+    for (final songId in songIds) {
+      if (!existingSet.contains(songId)) {
+        batch.insert('playlist_songs', {
+          'playlist_id': playlistId,
+          'song_id': songId,
+        });
+      }
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<void> clearPlaylist(int playlistId) async {
+    final db = await database;
+    await db.delete(
+      'playlist_songs',
+      where: 'playlist_id = ?',
+      whereArgs: [playlistId],
+    );
+  }
+
   Future<void> removeSongFromPlaylist(int playlistId, int songId) async {
     final db = await database;
     await db.delete(

@@ -1,21 +1,31 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:on_audio_query/on_audio_query.dart';
 import 'package:provider/provider.dart';
 import '../models/song_model.dart';
 import '../providers/playlist_provider.dart';
 import '../theme.dart';
 
 class AddToPlaylistDialog extends StatelessWidget {
-  final PlayOnSong song;
+  final List<PlayOnSong> songs;
 
-  const AddToPlaylistDialog({super.key, required this.song});
+  const AddToPlaylistDialog({super.key, required this.songs});
 
   static Future<void> show(BuildContext context, PlayOnSong song) {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => AddToPlaylistDialog(song: song),
+      builder: (_) => AddToPlaylistDialog(songs: [song]),
+    );
+  }
+
+  static Future<void> showBatch(BuildContext context, List<PlayOnSong> songs) {
+    return showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => AddToPlaylistDialog(songs: songs),
     );
   }
 
@@ -23,7 +33,7 @@ class AddToPlaylistDialog extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) => _CreateAndAddPlaylistDialog(
-        songId: song.id,
+        songIds: songs.map((s) => s.id).toList(),
         onAdded: () => Navigator.pop(context),
       ),
     );
@@ -31,13 +41,16 @@ class AddToPlaylistDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isSingle = songs.length == 1;
+    final firstSong = songs.first;
+
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           decoration: BoxDecoration(
-            color: PlayOnTheme.bgCard.withValues(alpha: 0.92),
+            color: PlayOnTheme.bgCard.withValues(alpha: 0.95),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             border: Border.all(color: PlayOnTheme.glassBorder, width: 1.5),
           ),
@@ -59,13 +72,37 @@ class AddToPlaylistDialog extends StatelessWidget {
               ),
               Row(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: PlayOnTheme.pinkAccent.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.playlist_add_rounded, color: PlayOnTheme.pinkAccent, size: 22),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: isSingle
+                        ? QueryArtworkWidget(
+                            id: firstSong.id,
+                            type: ArtworkType.AUDIO,
+                            format: ArtworkFormat.JPEG,
+                            artworkQuality: FilterQuality.low,
+                            size: 150,
+                            artworkWidth: 44,
+                            artworkHeight: 44,
+                            nullArtworkWidget: Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: PlayOnTheme.pinkAccent.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(Icons.playlist_add_rounded, color: PlayOnTheme.pinkAccent, size: 22),
+                            ),
+                            keepOldArtwork: true,
+                          )
+                        : Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              gradient: PlayOnTheme.primaryGradient,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(Icons.playlist_add_rounded, color: Colors.white, size: 22),
+                          ),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -81,7 +118,7 @@ class AddToPlaylistDialog extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          song.title,
+                          isSingle ? firstSong.title : '${songs.length} canciones seleccionadas',
                           style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 12),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -170,12 +207,15 @@ class AddToPlaylistDialog extends StatelessWidget {
                           ),
                           trailing: const Icon(Icons.chevron_right_rounded, color: PlayOnTheme.textTertiary),
                           onTap: () async {
-                            await provider.addSongToPlaylist(pl.id, song.id);
+                            final ids = songs.map((s) => s.id).toList();
+                            await provider.addSongsToPlaylist(pl.id, ids);
                             if (context.mounted) {
                               Navigator.pop(context);
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text('Añadida a "${pl.name}"'),
+                                  content: Text(
+                                    isSingle ? 'Añadida a "${pl.name}"' : 'Se añadieron ${ids.length} canciones a "${pl.name}"',
+                                  ),
                                   backgroundColor: PlayOnTheme.emeraldActive,
                                   behavior: SnackBarBehavior.floating,
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -198,11 +238,11 @@ class AddToPlaylistDialog extends StatelessWidget {
 }
 
 class _CreateAndAddPlaylistDialog extends StatefulWidget {
-  final int songId;
+  final List<int> songIds;
   final VoidCallback onAdded;
 
   const _CreateAndAddPlaylistDialog({
-    required this.songId,
+    required this.songIds,
     required this.onAdded,
   });
 
@@ -257,10 +297,10 @@ class _CreateAndAddPlaylistDialogState extends State<_CreateAndAddPlaylistDialog
             if (name.isNotEmpty) {
               final pl = await context.read<PlaylistProvider>().createPlaylist(name);
               if (pl != null && context.mounted) {
-                await context.read<PlaylistProvider>().addSongToPlaylist(pl.id, widget.songId);
+                await context.read<PlaylistProvider>().addSongsToPlaylist(pl.id, widget.songIds);
                 if (context.mounted) {
-                  Navigator.pop(context); // pop dialog
-                  widget.onAdded(); // pop bottomsheet
+                  Navigator.pop(context);
+                  widget.onAdded();
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Añadida a "$name"'),
@@ -282,4 +322,3 @@ class _CreateAndAddPlaylistDialogState extends State<_CreateAndAddPlaylistDialog
     );
   }
 }
-

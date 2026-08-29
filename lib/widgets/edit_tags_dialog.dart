@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:on_audio_query/on_audio_query.dart';
 import 'package:provider/provider.dart';
 import '../models/song_model.dart';
 import '../providers/music_provider.dart';
@@ -120,18 +121,46 @@ class _EditTagsDialogState extends State<EditTagsDialog> {
           children: [
             Row(
               children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: PlayOnTheme.purplePrimary.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: QueryArtworkWidget(
+                    id: widget.song.id,
+                    type: ArtworkType.AUDIO,
+                    format: ArtworkFormat.JPEG,
+                    artworkQuality: FilterQuality.low,
+                    size: 150,
+                    artworkWidth: 44,
+                    artworkHeight: 44,
+                    nullArtworkWidget: Container(
+                      width: 44,
+                      height: 44,
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: PlayOnTheme.purplePrimary.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.edit_note_rounded, color: PlayOnTheme.purpleGlow, size: 22),
+                    ),
+                    keepOldArtwork: true,
                   ),
-                  child: const Icon(Icons.edit_note_rounded, color: PlayOnTheme.purpleGlow, size: 22),
                 ),
                 const SizedBox(width: 14),
-                Text(
-                  'Editar Etiquetas ID3',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Editar Etiquetas ID3',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                      ),
+                      Text(
+                        widget.song.title,
+                        style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 12),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
