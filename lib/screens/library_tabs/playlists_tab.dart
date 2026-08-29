@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/playlist_provider.dart';
 import '../../services/playlist_db.dart';
+import '../../services/search_helper.dart';
 import '../../theme.dart';
 import '../playlist_detail_screen.dart';
 
@@ -16,7 +17,7 @@ class PlaylistsTab extends StatelessWidget {
       builder: (context, provider, _) {
         final playlists = provider.playlists.where((p) {
           if (searchQuery.trim().isEmpty) return true;
-          return p.name.toLowerCase().contains(searchQuery.toLowerCase().trim());
+          return SearchHelper.matchesText(p.name, searchQuery);
         }).toList();
 
         return Column(

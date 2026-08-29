@@ -6,6 +6,8 @@ import '../../theme.dart';
 import '../../widgets/song_tile.dart';
 import 'song_options_helper.dart';
 
+import '../../services/search_helper.dart';
+
 class FavoritesTab extends StatelessWidget {
   final String searchQuery;
   final VoidCallback onExploreSongs;
@@ -18,19 +20,15 @@ class FavoritesTab extends StatelessWidget {
 
   List<PlayOnSong> _filter(List<PlayOnSong> favs) {
     if (searchQuery.trim().isEmpty) return favs;
-    final q = searchQuery.toLowerCase().trim();
-    return favs.where((s) {
-      return s.title.toLowerCase().contains(q) ||
-          s.artist.toLowerCase().contains(q) ||
-          s.album.toLowerCase().contains(q);
-    }).toList();
+    return favs.where((s) => SearchHelper.matchesSong(s, searchQuery)).toList();
   }
 
   @override
   Widget build(BuildContext context) {
     return Consumer<MusicProvider>(
       builder: (context, provider, _) {
-        final favorites = _filter(provider.favoriteSongs);
+        final allFavs = provider.favoriteSongs;
+        final favorites = _filter(allFavs);
 
         if (favorites.isEmpty) {
           return Center(
@@ -124,7 +122,14 @@ class FavoritesTab extends StatelessWidget {
                     song: song,
                     isCurrent: isCurrent,
                     isPlaying: provider.isPlaying,
-                    onTap: () => provider.playCustomQueue(favorites, index),
+                    onTap: () {
+                      final targetIndex = allFavs.indexWhere((s) => s.id == song.id);
+                      if (targetIndex != -1) {
+                        provider.playCustomQueue(allFavs, targetIndex);
+                      } else {
+                        provider.playCustomQueue(favorites, index);
+                      }
+                    },
                     onOptionsTap: () => SongOptionsHelper.showSongOptions(context, song),
                     trailing: IconButton(
                       icon: const Icon(Icons.favorite_rounded, color: PlayOnTheme.pinkAccent, size: 22),

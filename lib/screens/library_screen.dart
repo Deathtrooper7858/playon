@@ -152,12 +152,23 @@ class _LibraryScreenState extends State<LibraryScreen>
                   controller: _searchController,
                   autofocus: true,
                   style: const TextStyle(color: PlayOnTheme.textPrimary),
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     hintText: 'Buscar canciones, artistas, álbumes...',
-                    hintStyle: TextStyle(color: PlayOnTheme.textTertiary, fontSize: 13.5),
+                    hintStyle: const TextStyle(color: PlayOnTheme.textTertiary, fontSize: 13.5),
                     border: InputBorder.none,
-                    prefixIcon: Icon(Icons.search_rounded, color: PlayOnTheme.purpleGlow),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    prefixIcon: const Icon(Icons.search_rounded, color: PlayOnTheme.purpleGlow),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.close_rounded, size: 18, color: PlayOnTheme.textSecondary),
+                            onPressed: () {
+                              setState(() {
+                                _searchQuery = '';
+                                _searchController.clear();
+                              });
+                            },
+                          )
+                        : null,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   ),
                   onChanged: (v) => setState(() => _searchQuery = v),
                 ),

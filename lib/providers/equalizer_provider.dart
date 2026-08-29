@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/native_equalizer_service.dart';
@@ -14,6 +15,7 @@ class EqualizerProvider extends ChangeNotifier {
   int _selectedPreset = -1; // -1 for custom
   int _bassBoost = 0; // 0 to 1000
   int? _currentAudioSessionId;
+  Timer? _saveDebounce;
 
   bool get isAvailable => _isAvailable;
   bool get enabled => _enabled;
@@ -91,6 +93,11 @@ class EqualizerProvider extends ChangeNotifier {
     }
   }
 
+  void _scheduleSaveState() {
+    _saveDebounce?.cancel();
+    _saveDebounce = Timer(const Duration(milliseconds: 500), _saveState);
+  }
+
   Future<void> _saveState() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -108,7 +115,7 @@ class EqualizerProvider extends ChangeNotifier {
     notifyListeners();
     try {
       await NativeEqualizerService.setEnabled(value);
-      await _saveState();
+      _scheduleSaveState();
     } catch (e) {
       debugPrint('Error setting EQ enabled: $e');
     }
@@ -121,7 +128,7 @@ class EqualizerProvider extends ChangeNotifier {
     notifyListeners();
     try {
       await NativeEqualizerService.setBandLevel(band, _bandLevels[band]);
-      await _saveState();
+      _scheduleSaveState();
     } catch (e) {
       debugPrint('Error setting band level: $e');
     }
@@ -135,7 +142,7 @@ class EqualizerProvider extends ChangeNotifier {
       if (presetLevels != null && presetLevels.isNotEmpty) {
         _bandLevels = List<int>.from(presetLevels);
       }
-      await _saveState();
+      _scheduleSaveState();
     } catch (e) {
       debugPrint('Error applying preset: $e');
     }
@@ -144,7 +151,7 @@ class EqualizerProvider extends ChangeNotifier {
 
   void setCustom() {
     _selectedPreset = -1;
-    _saveState();
+    _scheduleSaveState();
     notifyListeners();
   }
 
@@ -153,7 +160,7 @@ class EqualizerProvider extends ChangeNotifier {
     notifyListeners();
     try {
       await NativeEqualizerService.setBassBoost(_bassBoost);
-      await _saveState();
+      _scheduleSaveState();
     } catch (e) {
       debugPrint('Error setting bass boost: $e');
     }
@@ -165,5 +172,11 @@ class EqualizerProvider extends ChangeNotifier {
     } else {
       return '${(milliHz / 1000).round()} Hz';
     }
+  }
+
+  @override
+  void dispose() {
+    _saveDebounce?.cancel();
+    super.dispose();
   }
 }

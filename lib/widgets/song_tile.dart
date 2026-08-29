@@ -34,28 +34,29 @@ class SongTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
-      decoration: BoxDecoration(
-        color: isCurrent
-            ? PlayOnTheme.purplePrimary.withValues(alpha: 0.12)
-            : (isSelected ? PlayOnTheme.purpleDim.withValues(alpha: 0.2) : Colors.transparent),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
+    return RepaintBoundary(
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 3),
+        decoration: BoxDecoration(
           color: isCurrent
-              ? PlayOnTheme.purplePrimary.withValues(alpha: 0.45)
-              : (isSelected ? PlayOnTheme.purpleGlow.withValues(alpha: 0.4) : Colors.transparent),
-          width: 1.2,
-        ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
+              ? PlayOnTheme.purplePrimary.withValues(alpha: 0.12)
+              : (isSelected ? PlayOnTheme.purpleDim.withValues(alpha: 0.2) : Colors.transparent),
           borderRadius: BorderRadius.circular(14),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Row(
+          border: Border.all(
+            color: isCurrent
+                ? PlayOnTheme.purplePrimary.withValues(alpha: 0.45)
+                : (isSelected ? PlayOnTheme.purpleGlow.withValues(alpha: 0.4) : Colors.transparent),
+            width: 1.2,
+          ),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              child: Row(
               children: [
                 if (isSelectionMode) ...[
                   Checkbox(
@@ -155,8 +156,9 @@ class SongTile extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 class _FavoriteButton extends StatelessWidget {

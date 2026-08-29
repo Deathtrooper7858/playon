@@ -195,6 +195,27 @@ class DownloadProvider extends ChangeNotifier {
     return true;
   }
 
+  String? _extractVideoId(String rawUrl) {
+    final clean = rawUrl.trim();
+    final uri = Uri.tryParse(clean);
+    if (uri != null) {
+      if (uri.queryParameters.containsKey('v')) {
+        return uri.queryParameters['v'];
+      }
+      if (uri.host.contains('youtu.be') && uri.pathSegments.isNotEmpty) {
+        return uri.pathSegments.first;
+      }
+      if (uri.pathSegments.contains('shorts') && uri.pathSegments.length > 1) {
+        final idx = uri.pathSegments.indexOf('shorts');
+        if (idx + 1 < uri.pathSegments.length) {
+          return uri.pathSegments[idx + 1];
+        }
+      }
+    }
+    final match = RegExp(r'(?:v=|\/|youtu\.be\/)([0-9A-Za-z_-]{11})(?:[&?]|\b|$)').firstMatch(clean);
+    return match?.group(1);
+  }
+
   String _normalizeUrl(String rawUrl) {
     var url = rawUrl.trim();
     // YouTube Music normalización
@@ -219,39 +240,44 @@ class DownloadProvider extends ChangeNotifier {
     return cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
-  Future<void> downloadPlaylist(String url, String? customName) async {
+  Future<void> downloadPlaylist(String url, String? customName, {bool singleTrackOnly = false}) async {
     _cancelled = false;
     _status = DownloadStatus.fetchingInfo;
     _downloaded = 0;
     _total = 0;
     _completedTracks = [];
     _errorMessage = '';
-    _statusMessage = '';
+    _statusMessage = 'Obteniendo información del enlace...';
     notifyListeners();
 
     await _requestStoragePermission();
 
     final cookieString = await CookieService.getCookies();
-    final normalizedUrl = _normalizeUrl(url);
+    var normalizedUrl = _normalizeUrl(url);
 
-    String resolvedPlaylistTitle = 'Descarga';
+    // Si se solicitó solo la canción individual o si la URL es un video directo
+    final extractedVid = _extractVideoId(normalizedUrl);
+    if (singleTrackOnly && extractedVid != null) {
+      normalizedUrl = 'https://www.youtube.com/watch?v=$extractedVid';
+    }
+
+    String resolvedPlaylistTitle = 'Descargas';
     List<DownloadedTrack> resolvedTracks = [];
 
-    // ── 1. Intentar resolver con youtube_explode_dart ────────────────────────
+    // ── 1. Intentar resolver con youtube_explode_dart (Rápido: ~1s) ───────────
     final yt = (cookieString != null && cookieString.isNotEmpty)
         ? yte.YoutubeExplode(httpClient: _CookieHttpClient(cookieString))
         : yte.YoutubeExplode();
 
     try {
       try {
-        // Extraer si es playlist
-        if (normalizedUrl.contains('list=')) {
+        if (!singleTrackOnly && normalizedUrl.contains('list=')) {
           final uri = Uri.tryParse(normalizedUrl);
           final listId = uri?.queryParameters['list'];
-          if (listId != null && listId.isNotEmpty) {
-            final playlist = await yt.playlists.get(listId);
+          if (listId != null && listId.isNotEmpty && !listId.startsWith('RD')) {
+            final playlist = await yt.playlists.get(listId).timeout(const Duration(seconds: 15));
             resolvedPlaylistTitle = playlist.title;
-            final videos = await yt.playlists.getVideos(playlist.id).toList();
+            final videos = await yt.playlists.getVideos(playlist.id).toList().timeout(const Duration(seconds: 25));
             for (final v in videos) {
               resolvedTracks.add(DownloadedTrack(
                 id: v.id.value,
@@ -266,8 +292,8 @@ class DownloadProvider extends ChangeNotifier {
         }
 
         if (resolvedTracks.isEmpty) {
-          // Intentar como video individual
-          final video = await yt.videos.get(yte.VideoId(normalizedUrl));
+          final vidId = extractedVid ?? normalizedUrl;
+          final video = await yt.videos.get(yte.VideoId(vidId)).timeout(const Duration(seconds: 15));
           resolvedPlaylistTitle = _cleanTrackTitle(video.title);
           resolvedTracks.add(DownloadedTrack(
             id: video.id.value,
@@ -279,43 +305,85 @@ class DownloadProvider extends ChangeNotifier {
           ));
         }
       } catch (eExplode) {
-        debugPrint('youtube_explode_dart no pudo resolver metadata, usando fallback yt-dlp: $eExplode');
-        final info = await NativeYtDlpService.getPlaylistInfo(normalizedUrl, cookies: cookieString);
-        resolvedPlaylistTitle = info.title;
-        for (final t in info.tracks) {
-          resolvedTracks.add(DownloadedTrack(
-            id: t.id,
-            title: _cleanTrackTitle(t.title),
-            artist: t.artist,
-            url: t.url,
-            thumbnailUrl: t.thumbnail.isNotEmpty ? t.thumbnail : null,
-            success: false,
-          ));
-        }
+        debugPrint('youtube_explode no pudo resolver: $eExplode');
       }
 
+      // ── 2. Fallback a yt-dlp si youtube_explode no pudo (ej: YT Music) ────────
+      if (resolvedTracks.isEmpty) {
+        try {
+          final info = await NativeYtDlpService.getPlaylistInfo(
+            normalizedUrl,
+            cookies: cookieString,
+            extractSingle: singleTrackOnly || (extractedVid != null && !normalizedUrl.contains('list=PL')),
+          ).timeout(const Duration(seconds: 25));
+
+          if (info.tracks.isNotEmpty) {
+            resolvedPlaylistTitle = info.title;
+            for (final t in info.tracks) {
+              resolvedTracks.add(DownloadedTrack(
+                id: t.id,
+                title: _cleanTrackTitle(t.title),
+                artist: t.artist,
+                url: t.url,
+                thumbnailUrl: t.thumbnail.isNotEmpty ? t.thumbnail : null,
+                success: false,
+              ));
+            }
+          }
+        } catch (eYtdlp) {
+          debugPrint('yt-dlp tampoco pudo resolver: $eYtdlp');
+        }
+      }
+    } finally {
+      yt.close();
+    }
+
+    try {
       if (_cancelled) return;
 
       if (resolvedTracks.isEmpty) {
         _status = DownloadStatus.error;
-        _errorMessage = 'No se encontraron canciones en el enlace especificado.';
+        _errorMessage = 'No se pudo obtener información del enlace. Verifica que la URL sea válida o que tengas conexión.';
         notifyListeners();
         return;
       }
 
       // ── 2. Preparar carpeta destino ──────────────────────────────────────────
-      final rawName = (customName?.trim().isNotEmpty == true)
-          ? customName!.trim()
-          : resolvedPlaylistTitle;
+      String folderName;
+      String? existingFolderPath;
 
-      final folderName = rawName.replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_').trim();
+      if (customName != null && customName.trim().isNotEmpty) {
+        folderName = customName.trim();
+        // Si el usuario eligió una carpeta existente, buscar su ruta física exacta
+        for (final s in _musicProvider.allSongs) {
+          if (s.folderName == folderName && s.folderPath != null && s.folderPath!.isNotEmpty) {
+            existingFolderPath = s.folderPath;
+            break;
+          }
+        }
+      } else {
+        if (resolvedTracks.length > 1 && resolvedPlaylistTitle.isNotEmpty && resolvedPlaylistTitle != 'Descargas' && resolvedPlaylistTitle != 'Descarga') {
+          folderName = resolvedPlaylistTitle;
+        } else {
+          folderName = 'Descargas';
+        }
+      }
+
+      folderName = folderName.replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_').trim();
+      if (folderName.isEmpty) folderName = 'Descargas';
+
       _playlistName = folderName;
       _total = resolvedTracks.length;
       _status = DownloadStatus.downloading;
       notifyListeners();
 
-      final baseDir = await _getMusicDirectory();
-      final playlistDir = Directory('${baseDir.path}/$folderName');
+      Directory playlistDir;
+      if (existingFolderPath != null && Directory(existingFolderPath).existsSync()) {
+        playlistDir = Directory(existingFolderPath);
+      } else {
+        final baseDir = await _getMusicDirectory();
+        playlistDir = Directory('${baseDir.path}/$folderName');
+      }
       await playlistDir.create(recursive: true);
 
       // ── 3. Descargar cada canción ───────────────────────────────────────────
@@ -326,11 +394,13 @@ class DownloadProvider extends ChangeNotifier {
         _currentTrack = track.title;
         _currentTrackProgress = 0.0;
         _currentSpeed = '';
-        _statusMessage = 'Descargando audio...';
+        _statusMessage = 'Descargando ${i + 1} de $_total...';
         notifyListeners();
 
         final safeTitle = track.title.replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_').trim();
-        final fileName = '${(i + 1).toString().padLeft(3, '0')} - $safeTitle.m4a';
+        final fileName = resolvedTracks.length > 1
+            ? '${(i + 1).toString().padLeft(3, '0')} - $safeTitle.m4a'
+            : '$safeTitle.m4a';
         final filePath = '${playlistDir.path}/$fileName';
 
         // Si ya existe (reanudación)
@@ -404,7 +474,7 @@ class DownloadProvider extends ChangeNotifier {
 
         // Pausa breve anti rate-limit
         if (!_cancelled && i < resolvedTracks.length - 1) {
-          await Future.delayed(const Duration(milliseconds: 600));
+          await Future.delayed(const Duration(milliseconds: 300));
         }
       }
 
@@ -429,7 +499,6 @@ class DownloadProvider extends ChangeNotifier {
       _errorMessage = 'No se pudo procesar la descarga.\nDetalle: $eAll';
       NativeNotificationService.cancelNotification();
     } finally {
-      yt.close();
       notifyListeners();
     }
   }
@@ -460,7 +529,6 @@ class DownloadProvider extends ChangeNotifier {
       final index = _completedTracks.indexOf(track);
       final fileName = '${(index + 1).toString().padLeft(3, '0')} - $safeTitle.m4a';
       final filePath = '${playlistDir.path}/$fileName';
-
       bool success = false;
       String? error;
 
@@ -507,7 +575,7 @@ class DownloadProvider extends ChangeNotifier {
       notifyListeners();
 
       if (!_cancelled) {
-        await Future.delayed(const Duration(milliseconds: 600));
+        await Future.delayed(const Duration(milliseconds: 300));
       }
     }
 
@@ -565,3 +633,4 @@ class _CookieHttpClient extends yte.YoutubeHttpClient {
         'cookie': _cookieString,
       };
 }
+

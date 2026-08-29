@@ -110,6 +110,7 @@ class MainActivity : AudioServiceActivity() {
                     "getPlaylistInfo" -> {
                         val url = call.argument<String>("url")
                         val cookies = call.argument<String>("cookies") ?: ""
+                        val extractSingle = call.argument<Boolean>("extractSingle") ?: false
                         if (url == null) {
                             result.error("INVALID_ARGUMENT", "url must not be null", null)
                             return@setMethodCallHandler
@@ -118,7 +119,7 @@ class MainActivity : AudioServiceActivity() {
                             try {
                                 val py = Python.getInstance()
                                 val module = py.getModule("ytdlp_helper")
-                                val jsonString = module.callAttr("get_playlist_info", url, cookies).toString()
+                                val jsonString = module.callAttr("get_playlist_info", url, cookies, extractSingle).toString()
                                 
                                 runOnUiThread {
                                     result.success(jsonString)

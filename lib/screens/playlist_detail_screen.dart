@@ -4,6 +4,7 @@ import '../models/song_model.dart';
 import '../providers/music_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../services/playlist_db.dart';
+import '../services/search_helper.dart';
 import '../theme.dart';
 import '../widgets/mini_player.dart';
 import '../widgets/song_tile.dart';
@@ -171,12 +172,9 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
-            final query = sheetSearch.toLowerCase().trim();
             final filteredAvailable = availableSongs.where((s) {
-              if (query.isEmpty) return true;
-              return s.title.toLowerCase().contains(query) ||
-                  s.artist.toLowerCase().contains(query) ||
-                  s.album.toLowerCase().contains(query);
+              if (sheetSearch.trim().isEmpty) return true;
+              return SearchHelper.matchesSong(s, sheetSearch);
             }).toList();
 
             return SafeArea(
@@ -381,10 +379,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
 
     final filteredSongs = _songs.where((s) {
       if (_searchQuery.trim().isEmpty) return true;
-      final q = _searchQuery.toLowerCase().trim();
-      return s.title.toLowerCase().contains(q) ||
-          s.artist.toLowerCase().contains(q) ||
-          s.album.toLowerCase().contains(q);
+      return SearchHelper.matchesSong(s, _searchQuery);
     }).toList();
 
     return Scaffold(
@@ -444,7 +439,14 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                                   song: song,
                                   isCurrent: isCurrent,
                                   isPlaying: musicProv.isPlaying,
-                                  onTap: () => musicProv.playCustomQueue(filteredSongs, index),
+                                  onTap: () {
+                                    final targetIndex = _songs.indexWhere((s) => s.id == song.id);
+                                    if (targetIndex != -1) {
+                                      musicProv.playCustomQueue(_songs, targetIndex);
+                                    } else {
+                                      musicProv.playCustomQueue(filteredSongs, index);
+                                    }
+                                  },
                                   onOptionsTap: () => SongOptionsHelper.showSongOptions(context, song),
                                   trailing: IconButton(
                                     icon: const Icon(Icons.remove_circle_outline_rounded, size: 20),

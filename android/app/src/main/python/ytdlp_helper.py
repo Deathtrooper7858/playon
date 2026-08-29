@@ -137,11 +137,13 @@ def get_audio_url(url, cookies_str=""):
             except Exception:
                 pass
 
-def get_playlist_info(url, cookies_str=""):
+def get_playlist_info(url, cookies_str="", extract_single=False):
     """Extrae información completa de una playlist o video individual de YouTube/YT Music."""
     cookie_file = _write_cookiefile(cookies_str)
     ydl_opts = _build_ydl_opts(cookie_file=cookie_file)
-    ydl_opts['extract_flat'] = 'in_playlist'
+    ydl_opts['extract_flat'] = 'in_playlist' if not extract_single else True
+    if extract_single:
+        ydl_opts['noplaylist'] = True
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -151,7 +153,7 @@ def get_playlist_info(url, cookies_str=""):
             playlist_title = info.get('title', 'Descarga')
             tracks = []
 
-            if 'entries' in info and info['entries']:
+            if not extract_single and 'entries' in info and info['entries']:
                 for entry in info['entries']:
                     if not entry:
                         continue
@@ -217,11 +219,14 @@ def download_audio(url, out_path, title="", artist="", album="", thumbnail_url="
     cookie_file = _write_cookiefile(cookies_str)
     ydl_opts = _build_ydl_opts(cookie_file=cookie_file)
     ydl_opts.update({
-        'format': 'bestaudio[ext=m4a]/bestaudio[ext=mp4]/bestaudio/best',
+        'format': '140/ba[ext=m4a]/ba/b[ext=mp4]/b',
         'outtmpl': base_path + '.%(ext)s',
         'noplaylist': True,
         'cachedir': False,
         'noprogress': True,
+        'http_chunk_size': 10485760,
+        'buffersize': 65536,
+        'concurrent_fragment_downloads': 1,
     })
 
     try:
@@ -254,38 +259,50 @@ def download_audio(url, out_path, title="", artist="", album="", thumbnail_url="
         if not final_file or not os.path.exists(final_file):
             return "ERROR: archivo descargado no encontrado en " + base_path
 
-        # ── Incrustar etiquetas ID3 / MP4 y carátula de álbum (NO BLOQUEANTE) ─────────
+        # ── Incrustar etiquetas ID3 / MP4 y carátula de álbum (SEGURO Y NO BLOQUEANTE) ─────────
         try:
-            mp4 = MP4(final_file)
-            if mp4.tags is None:
-                mp4.add_tags()
-
             parsed_artist, parsed_title = parse_artist_title(title, artist)
-            if parsed_title or title:
-                mp4.tags['\xa9nam'] = [parsed_title or title]
-            if parsed_artist or artist:
-                mp4.tags['\xa9ART'] = [parsed_artist or artist]
-            if album:
-                mp4.tags['\xa9alb'] = [album]
+            tag_title = parsed_title or title
+            tag_artist = parsed_artist or artist
 
-            # Descargar e incrustar carátula si existe thumbnail_url con timeout de 5s
-            if thumbnail_url and thumbnail_url.startswith(('http://', 'https://')):
+            if final_file.lower().endswith(('.m4a', '.mp4')):
                 try:
-                    req = urllib.request.Request(
-                        thumbnail_url,
-                        headers={'User-Agent': 'Mozilla/5.0'}
-                    )
-                    with urllib.request.urlopen(req, timeout=5) as resp:
-                        img_data = resp.read()
-                        if img_data:
-                            covr_format = MP4Cover.FORMAT_PNG if thumbnail_url.endswith('.png') else MP4Cover.FORMAT_JPEG
-                            mp4.tags['covr'] = [MP4Cover(img_data, imageformat=covr_format)]
-                except Exception as cover_err:
-                    print(f"Warning: could not embed cover art: {cover_err}")
+                    mp4 = MP4(final_file)
+                    if mp4.tags is None:
+                        mp4.add_tags()
+                    if tag_title:
+                        mp4.tags['\xa9nam'] = [tag_title]
+                    if tag_artist:
+                        mp4.tags['\xa9ART'] = [tag_artist]
+                    if album:
+                        mp4.tags['\xa9alb'] = [album]
 
-            mp4.save()
-        except Exception as tag_err:
-            print(f"Warning: could not save mp4 tags: {tag_err}")
+                    # Carátula
+                    if thumbnail_url and thumbnail_url.startswith(('http://', 'https://')):
+                        try:
+                            req = urllib.request.Request(thumbnail_url, headers={'User-Agent': 'Mozilla/5.0'})
+                            with urllib.request.urlopen(req, timeout=5) as resp:
+                                img_data = resp.read()
+                                if img_data:
+                                    covr_format = MP4Cover.FORMAT_PNG if thumbnail_url.endswith('.png') else MP4Cover.FORMAT_JPEG
+                                    mp4.tags['covr'] = [MP4Cover(img_data, imageformat=covr_format)]
+                        except Exception:
+                            pass
+                    mp4.save()
+                except Exception as mp4_err:
+                    print(f"MP4 tagging notice: {mp4_err}")
+            else:
+                try:
+                    audio = MutagenFile(final_file, easy=True)
+                    if audio is not None and hasattr(audio, 'tags') and audio.tags is not None:
+                        if tag_title: audio['title'] = [tag_title]
+                        if tag_artist: audio['artist'] = [tag_artist]
+                        if album: audio['album'] = [album]
+                        audio.save()
+                except Exception as generic_err:
+                    print(f"Generic tagging notice: {generic_err}")
+        except Exception as tag_outer_err:
+            print(f"Tagging non-fatal error: {tag_outer_err}")
 
         return "SUCCESS"
     except Exception as e:

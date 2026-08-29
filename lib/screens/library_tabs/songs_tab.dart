@@ -10,6 +10,8 @@ import '../../widgets/song_tile.dart';
 import '../../widgets/sort_filter_sheet.dart';
 import 'song_options_helper.dart';
 
+import '../../services/search_helper.dart';
+
 class SongsTab extends StatefulWidget {
   final String searchQuery;
 
@@ -56,12 +58,7 @@ class _SongsTabState extends State<SongsTab> {
 
   List<PlayOnSong> _filterSongs(List<PlayOnSong> songs) {
     if (widget.searchQuery.trim().isEmpty) return songs;
-    final query = widget.searchQuery.toLowerCase().trim();
-    return songs.where((song) {
-      return song.title.toLowerCase().contains(query) ||
-          song.artist.toLowerCase().contains(query) ||
-          song.album.toLowerCase().contains(query);
-    }).toList();
+    return songs.where((song) => SearchHelper.matchesSong(song, widget.searchQuery)).toList();
   }
 
   @override
@@ -170,7 +167,12 @@ class _SongsTabState extends State<SongsTab> {
                       if (_isSelectionMode) {
                         _toggleSelection(song.id);
                       } else {
-                        provider.playCustomQueue(songs, index);
+                        final targetIndex = baseSongs.indexWhere((s) => s.id == song.id);
+                        if (targetIndex != -1) {
+                          provider.playCustomQueue(baseSongs, targetIndex);
+                        } else {
+                          provider.playCustomQueue(songs, index);
+                        }
                       }
                     },
                     onSelectChanged: (_) => _toggleSelection(song.id),

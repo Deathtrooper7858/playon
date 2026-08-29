@@ -67,10 +67,11 @@ class NativeYtDlpService {
     return result;
   }
 
-  static Future<YtDlpPlaylistInfo> getPlaylistInfo(String url, {String? cookies}) async {
+  static Future<YtDlpPlaylistInfo> getPlaylistInfo(String url, {String? cookies, bool extractSingle = false}) async {
     final result = await _channel.invokeMethod<String>('getPlaylistInfo', {
       'url': url,
       'cookies': cookies ?? '',
+      'extractSingle': extractSingle,
     });
     if (result == null || result.isEmpty) {
       throw Exception('No se recibió respuesta de yt-dlp');

@@ -23,6 +23,10 @@ class _DownloadScreenState extends State<DownloadScreen> {
   String? _lastError;
   bool _hasCookies = false;
 
+  bool _singleSongOnly = false;
+  String _folderSelectionMode = 'auto'; // 'auto', 'existing', 'custom'
+  String? _selectedExistingFolder;
+
   @override
   void initState() {
     super.initState();
@@ -77,9 +81,21 @@ class _DownloadScreenState extends State<DownloadScreen> {
   void _startDownload(DownloadProvider provider) {
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
+
+    String? targetFolder;
+    if (_folderSelectionMode == 'existing' && _selectedExistingFolder != null && _selectedExistingFolder!.isNotEmpty) {
+      targetFolder = _selectedExistingFolder;
+    } else if (_nameController.text.trim().isNotEmpty) {
+      targetFolder = _nameController.text.trim();
+    } else {
+      // Dejar en blanco para que DownloadProvider cree automáticamente una nueva carpeta
+      targetFolder = null;
+    }
+
     provider.downloadPlaylist(
       _urlController.text.trim(),
-      _nameController.text.trim().isEmpty ? null : _nameController.text.trim(),
+      targetFolder,
+      singleTrackOnly: _singleSongOnly,
     );
   }
 
@@ -207,6 +223,9 @@ class _DownloadScreenState extends State<DownloadScreen> {
   }
 
   Widget _buildForm(DownloadProvider provider) {
+    final musicProv = context.watch<MusicProvider>();
+    final existingFolders = musicProv.folders.where((f) => f.isNotEmpty).toList();
+
     return Form(
       key: _formKey,
       child: Column(
@@ -222,7 +241,6 @@ class _DownloadScreenState extends State<DownloadScreen> {
                   final data = await Clipboard.getData(Clipboard.kTextPlain);
                   if (data != null && data.text != null && data.text!.isNotEmpty) {
                     var cleaned = data.text!.trim();
-                    // Limpiar parámetros de tracking si los hay
                     if (cleaned.contains('?si=') || cleaned.contains('&si=')) {
                       cleaned = cleaned.replaceAll(RegExp(r'[?&]si=[^&]+'), '');
                     }
@@ -230,6 +248,16 @@ class _DownloadScreenState extends State<DownloadScreen> {
                       cleaned = cleaned.replaceAll(RegExp(r'&feature=[^&]+'), '');
                     }
                     _urlController.text = cleaned;
+
+                    // Auto-detect mode
+                    setState(() {
+                      if (cleaned.contains('list=') && !cleaned.contains('list=RD')) {
+                        _singleSongOnly = false;
+                      } else {
+                        _singleSongOnly = true;
+                      }
+                    });
+
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -237,7 +265,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
                             children: [
                               Icon(Icons.content_paste_rounded, color: Colors.white, size: 18),
                               SizedBox(width: 8),
-                              Text('Enlace pegado y optimizado'),
+                              Text('Enlace pegado'),
                             ],
                           ),
                           backgroundColor: PlayOnTheme.purplePrimary,
@@ -277,8 +305,13 @@ class _DownloadScreenState extends State<DownloadScreen> {
           const SizedBox(height: 8),
           _buildTextField(
             controller: _urlController,
-            hint: 'https://music.youtube.com/playlist?list=...',
+            hint: 'https://music.youtube.com/playlist?list=... o watch?v=...',
             icon: Icons.link_rounded,
+            onChanged: (val) {
+              if (val.contains('list=') && !val.contains('list=RD')) {
+                if (_singleSongOnly) setState(() => _singleSongOnly = false);
+              }
+            },
             validator: (v) {
               if (v == null || v.trim().isEmpty) return 'Ingresa una URL';
               if (!v.contains('youtube') && !v.contains('youtu.be')) {
@@ -288,17 +321,226 @@ class _DownloadScreenState extends State<DownloadScreen> {
             },
           ),
 
+          const SizedBox(height: 16),
+
+          // Modo de descarga (Canción sola vs Playlist)
+          _buildLabel('MODO DE DESCARGA'),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => setState(() => _singleSongOnly = false),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: !_singleSongOnly ? PlayOnTheme.purplePrimary.withValues(alpha: 0.25) : PlayOnTheme.bgSurface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: !_singleSongOnly ? PlayOnTheme.purpleGlow : PlayOnTheme.glassBorder,
+                        width: !_singleSongOnly ? 1.5 : 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.queue_music_rounded, size: 18, color: !_singleSongOnly ? PlayOnTheme.purpleGlow : PlayOnTheme.textSecondary),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Playlist Completa',
+                          style: TextStyle(
+                            color: !_singleSongOnly ? PlayOnTheme.textPrimary : PlayOnTheme.textSecondary,
+                            fontWeight: !_singleSongOnly ? FontWeight.bold : FontWeight.normal,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: GestureDetector(
+                  onTap: () => setState(() => _singleSongOnly = true),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: _singleSongOnly ? PlayOnTheme.purplePrimary.withValues(alpha: 0.25) : PlayOnTheme.bgSurface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _singleSongOnly ? PlayOnTheme.purpleGlow : PlayOnTheme.glassBorder,
+                        width: _singleSongOnly ? 1.5 : 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.music_note_rounded, size: 18, color: _singleSongOnly ? PlayOnTheme.purpleGlow : PlayOnTheme.textSecondary),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Solo esta Canción',
+                          style: TextStyle(
+                            color: _singleSongOnly ? PlayOnTheme.textPrimary : PlayOnTheme.textSecondary,
+                            fontWeight: _singleSongOnly ? FontWeight.bold : FontWeight.normal,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
           const SizedBox(height: 18),
 
-          // Name field
-          _buildLabel('NOMBRE DE CARPETA (OPCIONAL)'),
-          const SizedBox(height: 8),
-          _buildTextField(
-            controller: _nameController,
-            hint: 'Ej: Favoritas 2026 (vacío = nombre de la playlist)',
-            icon: Icons.folder_rounded,
-            validator: null,
+          // Carpeta de destino
+          Row(
+            children: [
+              _buildLabel('CARPETA DE DESTINO'),
+              const Spacer(),
+              Text(
+                _folderSelectionMode == 'auto'
+                    ? '⚡ Automática (Nueva)'
+                    : _folderSelectionMode == 'existing'
+                        ? '📁 Existente'
+                        : '✏️ Personalizada',
+                style: const TextStyle(color: PlayOnTheme.purpleGlow, fontSize: 11, fontWeight: FontWeight.bold),
+              ),
+            ],
           ),
+          const SizedBox(height: 8),
+
+          // Chips para alternar modo de carpeta
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: Row(
+              children: [
+                ChoiceChip(
+                  label: const Text('⚡ Crear nueva (Automático)'),
+                  selected: _folderSelectionMode == 'auto',
+                  selectedColor: PlayOnTheme.purplePrimary.withValues(alpha: 0.3),
+                  backgroundColor: PlayOnTheme.bgSurface,
+                  labelStyle: TextStyle(
+                    color: _folderSelectionMode == 'auto' ? PlayOnTheme.purpleGlow : PlayOnTheme.textSecondary,
+                    fontSize: 12,
+                    fontWeight: _folderSelectionMode == 'auto' ? FontWeight.bold : FontWeight.normal,
+                  ),
+                  onSelected: (selected) {
+                    if (selected) {
+                      setState(() {
+                        _folderSelectionMode = 'auto';
+                        _selectedExistingFolder = null;
+                        _nameController.clear();
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(width: 8),
+                if (existingFolders.isNotEmpty) ...[
+                  ChoiceChip(
+                    label: const Text('📁 Elegir existente'),
+                    selected: _folderSelectionMode == 'existing',
+                    selectedColor: PlayOnTheme.purplePrimary.withValues(alpha: 0.3),
+                    backgroundColor: PlayOnTheme.bgSurface,
+                    labelStyle: TextStyle(
+                      color: _folderSelectionMode == 'existing' ? PlayOnTheme.purpleGlow : PlayOnTheme.textSecondary,
+                      fontSize: 12,
+                      fontWeight: _folderSelectionMode == 'existing' ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    onSelected: (selected) {
+                      if (selected) {
+                        setState(() {
+                          _folderSelectionMode = 'existing';
+                          _selectedExistingFolder ??= existingFolders.first;
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                ChoiceChip(
+                  label: const Text('✏️ Nombre específico'),
+                  selected: _folderSelectionMode == 'custom',
+                  selectedColor: PlayOnTheme.purplePrimary.withValues(alpha: 0.3),
+                  backgroundColor: PlayOnTheme.bgSurface,
+                  labelStyle: TextStyle(
+                    color: _folderSelectionMode == 'custom' ? PlayOnTheme.purpleGlow : PlayOnTheme.textSecondary,
+                    fontSize: 12,
+                    fontWeight: _folderSelectionMode == 'custom' ? FontWeight.bold : FontWeight.normal,
+                  ),
+                  onSelected: (selected) {
+                    if (selected) {
+                      setState(() {
+                        _folderSelectionMode = 'custom';
+                        _selectedExistingFolder = null;
+                      });
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // Detalle según el modo de carpeta
+          if (_folderSelectionMode == 'existing' && existingFolders.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+              decoration: BoxDecoration(
+                color: PlayOnTheme.bgSurface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: PlayOnTheme.glassBorder),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: _selectedExistingFolder ?? existingFolders.first,
+                  isExpanded: true,
+                  dropdownColor: PlayOnTheme.bgCard,
+                  icon: const Icon(Icons.keyboard_arrow_down_rounded, color: PlayOnTheme.purpleGlow),
+                  items: existingFolders.map((f) {
+                    final songCount = musicProv.allSongs.where((s) => s.folderName == f).length;
+                    return DropdownMenuItem<String>(
+                      value: f,
+                      child: Row(
+                        children: [
+                          const Icon(Icons.folder_rounded, color: PlayOnTheme.pinkAccent, size: 18),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              f,
+                              style: const TextStyle(color: PlayOnTheme.textPrimary, fontSize: 13.5),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Text(
+                            '$songCount canciones',
+                            style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                  onChanged: (val) {
+                    if (val != null) {
+                      setState(() => _selectedExistingFolder = val);
+                    }
+                  },
+                ),
+              ),
+            )
+          else
+            _buildTextField(
+              controller: _nameController,
+              hint: _folderSelectionMode == 'auto'
+                  ? 'Vacío = Crea carpeta con el nombre de la playlist/canción'
+                  : 'Ej: Mis Éxitos 2026',
+              icon: Icons.create_new_folder_rounded,
+              validator: null,
+            ),
 
           const SizedBox(height: 24),
 
@@ -345,7 +587,9 @@ class _DownloadScreenState extends State<DownloadScreen> {
                 label: Text(
                   provider.status == DownloadStatus.fetchingInfo
                       ? 'Analizando enlace...'
-                      : 'Descargar Música',
+                      : _singleSongOnly
+                          ? 'Descargar Canción'
+                          : 'Descargar Playlist',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 16,
@@ -438,10 +682,12 @@ class _DownloadScreenState extends State<DownloadScreen> {
     required String hint,
     required IconData icon,
     required String? Function(String?)? validator,
+    ValueChanged<String>? onChanged,
   }) {
     return TextFormField(
       controller: controller,
       validator: validator,
+      onChanged: onChanged,
       style: const TextStyle(color: PlayOnTheme.textPrimary, fontSize: 14),
       decoration: InputDecoration(
         hintText: hint,
