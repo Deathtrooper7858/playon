@@ -101,4 +101,29 @@ class NativeYtDlpService {
       throw Exception(result ?? 'Error desconocido durante la descarga');
     }
   }
+
+  static Future<void> downloadVideo({
+    required String url,
+    required String outPath,
+    String? title,
+    String? artist,
+    String? album,
+    String? thumbnailUrl,
+    String? cookies,
+    String quality = 'best',
+  }) async {
+    final result = await _channel.invokeMethod<String>('downloadVideo', {
+      'url': url,
+      'outPath': outPath,
+      'title': title ?? '',
+      'artist': artist ?? '',
+      'album': album ?? '',
+      'thumbnailUrl': thumbnailUrl ?? '',
+      'cookies': cookies ?? '',
+      'quality': quality,
+    });
+    if (result != 'SUCCESS') {
+      throw Exception(result ?? 'Error desconocido durante la descarga de video');
+    }
+  }
 }

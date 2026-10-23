@@ -119,6 +119,11 @@ def _build_ydl_opts(extra_headers=None, cookie_file=None):
         'socket_timeout': 20,
         'retries': 3,
         'fragment_retries': 3,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios'],
+            }
+        },
     }
 
     if extra_headers:
@@ -236,6 +241,9 @@ def download_audio(url, out_path, title="", artist="", album="", thumbnail_url="
         'http_chunk_size': 10485760,
         'buffersize': 65536,
         'concurrent_fragment_downloads': 1,
+        'writesubtitles': True,
+        'writeautomaticsub': True,
+        'subtitleslangs': ['es', 'en', 'es-orig', 'en-orig'],
     })
 
     try:
@@ -312,6 +320,128 @@ def download_audio(url, out_path, title="", artist="", album="", thumbnail_url="
                     print(f"Generic tagging notice: {generic_err}")
         except Exception as tag_outer_err:
             print(f"Tagging non-fatal error: {tag_outer_err}")
+
+        return "SUCCESS"
+    except Exception as e:
+        return "ERROR:" + str(e) + "\n" + traceback.format_exc()
+    finally:
+        if cookie_file and os.path.exists(cookie_file):
+            try:
+                os.remove(cookie_file)
+            except Exception:
+                pass
+
+def download_video(url, out_path, title="", artist="", album="", thumbnail_url="", cookies_str="", quality="best"):
+    """Descarga video MP4 de YouTube con metadatos (titulo, autor) incrustados y miniatura fisica."""
+    if out_path.endswith('.mp4'):
+        base_path = out_path[:-4]
+    else:
+        base_path = out_path
+
+    out_dir = os.path.dirname(out_path)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
+    cookie_file = _write_cookiefile(cookies_str)
+    ydl_opts = _build_ydl_opts(cookie_file=cookie_file)
+    # Formatos progresivos con audio y video muxed: Formato 22 (720p HD) y Formato 18 (360p)
+    if quality in ('360', 'low', 'sd'):
+        video_format = '18/b[height<=480][ext=mp4]/b[height<=480]/b'
+    else:
+        video_format = '22/best[height>=720][ext=mp4][vcodec!=none][acodec!=none]/best[height>=720][vcodec!=none][acodec!=none]/best[ext=mp4][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]/b[ext=mp4]/b/18'
+    ydl_opts.update({
+        'format': video_format,
+        'outtmpl': base_path + '.%(ext)s',
+        'noplaylist': True,
+        'cachedir': False,
+        'noprogress': True,
+        'http_chunk_size': 10485760,
+        'buffersize': 65536,
+        'concurrent_fragment_downloads': 1,
+    })
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            if not title and info:
+                title = info.get('title', '')
+            if not artist and info:
+                artist = info.get('uploader') or info.get('channel') or ''
+            if not thumbnail_url and info:
+                thumbnail_url = info.get('thumbnail', '')
+
+        # Asegurar archivo final en out_path
+        final_file = None
+        if os.path.exists(out_path):
+            final_file = out_path
+        else:
+            for ext in ('mp4', 'mkv', 'webm', '3gp'):
+                candidate = base_path + '.' + ext
+                if os.path.exists(candidate):
+                    if candidate != out_path:
+                        try:
+                            os.replace(candidate, out_path)
+                        except Exception:
+                            import shutil
+                            shutil.copy2(candidate, out_path)
+                    final_file = out_path
+                    break
+
+        if not final_file or not os.path.exists(final_file):
+            return "ERROR: archivo descargado de video no encontrado en " + base_path
+
+        # -- Descargar y guardar archivo fisico de miniatura (.thumb.jpg) en alta resolucion --
+        img_data = None
+        if thumbnail_url and thumbnail_url.startswith(('http://', 'https://')):
+            # Priorizar maxresdefault para obtener la mejor nitidez visual
+            candidate_urls = [thumbnail_url]
+            if 'i.ytimg.com' in thumbnail_url or 'googleusercontent.com' in thumbnail_url:
+                hq_url = re.sub(r'/(?:hqdefault|mqdefault|sddefault|default)\.jpg', '/maxresdefault.jpg', thumbnail_url)
+                if hq_url != thumbnail_url:
+                    candidate_urls.insert(0, hq_url)
+
+            for cand_url in candidate_urls:
+                try:
+                    req = urllib.request.Request(cand_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        data = resp.read()
+                        if data and len(data) > 1024:
+                            img_data = data
+                            thumb_path = base_path + '.thumb.jpg'
+                            with open(thumb_path, 'wb') as f_thumb:
+                                f_thumb.write(img_data)
+                            break
+                except Exception as thumb_err:
+                    print(f"Thumbnail candidate {cand_url} notice: {thumb_err}")
+
+        # -- Incrustar etiquetas MP4 y miniatura en el contenedor de video --
+        try:
+            parsed_artist, parsed_title = parse_artist_title(title, artist)
+            tag_title = parsed_title or title
+            tag_artist = parsed_artist or artist
+
+            if final_file.lower().endswith(('.mp4', '.m4v')):
+                try:
+                    mp4 = MP4(final_file)
+                    if mp4.tags is None:
+                        mp4.add_tags()
+                    if tag_title:
+                        mp4.tags['\xa9nam'] = [tag_title]
+                    if tag_artist:
+                        mp4.tags['\xa9ART'] = [tag_artist]
+                    if album:
+                        mp4.tags['\xa9alb'] = [album]
+
+                    # Caratula/miniatura incrustada
+                    if img_data:
+                        is_png = img_data.startswith(b'\x89PNG\r\n\x1a\n')
+                        covr_format = MP4Cover.FORMAT_PNG if is_png else MP4Cover.FORMAT_JPEG
+                        mp4.tags['covr'] = [MP4Cover(img_data, imageformat=covr_format)]
+                    mp4.save()
+                except Exception as mp4_err:
+                    print(f"MP4 video tagging notice: {mp4_err}")
+        except Exception as tag_outer_err:
+            print(f"Video tagging non-fatal error: {tag_outer_err}")
 
         return "SUCCESS"
     except Exception as e:

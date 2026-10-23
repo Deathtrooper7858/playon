@@ -7,6 +7,7 @@ import 'providers/equalizer_provider.dart';
 import 'providers/music_provider.dart';
 import 'providers/playlist_provider.dart';
 import 'providers/download_provider.dart';
+import 'providers/video_provider.dart';
 import 'models/song_model.dart';
 import 'screens/library_screen.dart';
 import 'screens/download_screen.dart';
@@ -55,6 +56,7 @@ class PlayOnApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => MusicProvider()),
+        ChangeNotifierProvider(create: (_) => VideoProvider()),
         ChangeNotifierProxyProvider<MusicProvider, EqualizerProvider>(
           create: (_) => EqualizerProvider(),
           update: (_, music, prev) {
@@ -70,9 +72,13 @@ class PlayOnApp extends StatelessWidget {
           create: (ctx) => PlaylistProvider(ctx.read<MusicProvider>()),
           update: (_, music, prev) => prev ?? PlaylistProvider(music),
         ),
-        ChangeNotifierProxyProvider<MusicProvider, DownloadProvider>(
-          create: (ctx) => DownloadProvider(ctx.read<MusicProvider>()),
-          update: (_, music, prev) => prev ?? DownloadProvider(music),
+        ChangeNotifierProxyProvider2<MusicProvider, VideoProvider, DownloadProvider>(
+          create: (ctx) => DownloadProvider(
+            ctx.read<MusicProvider>(),
+            videoProvider: ctx.read<VideoProvider>(),
+          ),
+          update: (_, music, video, prev) =>
+              prev ?? DownloadProvider(music, videoProvider: video),
         ),
       ],
       child: MaterialApp(

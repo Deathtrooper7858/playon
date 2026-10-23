@@ -31,13 +31,13 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
   Timer? _fadePeriodicTimer;
   DateTime? _sleepTimerEndTime;
   double _preFadeVolume = 1.0;
+  bool _sleepOnTrackEnd = false;
 
-  // Concurrency guard for playlist updates
-  Completer<void>? _playlistUpdateCompleter;
+  // Concurrency guard for playlist updates (FIFO sequential lock)
+  Future<void> _playlistLock = Future.value();
 
-  // Throttle for position updates: last notified position time
-  DateTime _lastPositionNotify = DateTime.fromMillisecondsSinceEpoch(0);
-  static const _positionThrottleMs = 180;
+  // Position notifier to decouple high-frequency position ticks from root notifyListeners()
+  final ValueNotifier<Duration> positionNotifier = ValueNotifier<Duration>(Duration.zero);
 
   List<PlayOnSong> _allSongs = [];
   List<PlayOnSong> _currentQueue = [];
@@ -72,7 +72,8 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
   Duration get position => _position;
   Duration get duration => _duration;
   bool get isLoading => _isLoading;
-  bool get hasSleepTimer => _sleepTimer != null && _sleepTimer!.isActive;
+  bool get hasSleepTimer => (_sleepTimer != null && _sleepTimer!.isActive) || _sleepOnTrackEnd;
+  bool get sleepOnTrackEnd => _sleepOnTrackEnd;
   SongSortOption get sortOption => _sortOption;
   bool get sortAscending => _sortAscending;
 
@@ -314,12 +315,7 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
     _subscriptions.add(
       _player.positionStream.listen((pos) {
         _position = pos;
-        final now = DateTime.now();
-        if (now.difference(_lastPositionNotify).inMilliseconds >=
-            _positionThrottleMs) {
-          _lastPositionNotify = now;
-          notifyListeners();
-        }
+        positionNotifier.value = pos;
       }),
     );
 
@@ -338,6 +334,13 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
         if (playing != _isPlaying) {
           _isPlaying = playing;
           notifyListeners();
+        }
+        if (state.processingState == ProcessingState.completed) {
+          if (_sleepOnTrackEnd) {
+            _sleepOnTrackEnd = false;
+            stop();
+            notifyListeners();
+          }
         }
       }),
     );
@@ -501,18 +504,26 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _updatePlaylist(
+      {int initialIndex = 0, Duration? position}) {
+    final task = _playlistLock.then((_) => _performUpdatePlaylist(
+          initialIndex: initialIndex,
+          position: position,
+        ));
+    _playlistLock = task.catchError((e) {
+      debugPrint('Error en cola de actualización de playlist: $e');
+    });
+    return _playlistLock;
+  }
+
+  Future<void> _performUpdatePlaylist(
       {int initialIndex = 0, Duration? position}) async {
     if (_currentQueue.isEmpty) {
       return;
     }
 
-    // Esperar si hay una actualización previa en curso para evitar colisiones en setAudioSources
-    while (_playlistUpdateCompleter != null) {
-      await _playlistUpdateCompleter!.future;
-    }
-
-    final completer = Completer<void>();
-    _playlistUpdateCompleter = completer;
+    final safeIndex = (initialIndex >= 0 && initialIndex < _currentQueue.length)
+        ? initialIndex
+        : 0;
 
     try {
       final sources = _currentQueue
@@ -541,14 +552,11 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
 
       await _player.setAudioSources(
         sources,
-        initialIndex: initialIndex,
+        initialIndex: safeIndex,
         initialPosition: position,
       );
     } catch (e) {
       debugPrint('Error actualizando fuentes de audio: $e');
-    } finally {
-      completer.complete();
-      _playlistUpdateCompleter = null;
     }
   }
 
@@ -665,11 +673,21 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
       await _player.pause();
       _scheduleSaveState();
     } else {
-      if (currentSong == null && _currentQueue.isNotEmpty) {
+      if (_currentQueue.isEmpty) {
+        return;
+      }
+      if (currentSong == null) {
         await playSong(0);
       } else {
         await _player.play();
       }
+    }
+  }
+
+  Future<void> pause() async {
+    if (_isPlaying) {
+      await _player.pause();
+      _scheduleSaveState();
     }
   }
 
@@ -680,6 +698,9 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> next() async {
     HapticFeedback.selectionClick();
+    if (_currentQueue.isEmpty) {
+      return;
+    }
     if (_player.hasNext) {
       await _player.seekToNext();
     } else if (_repeatMode == PlayerRepeatMode.all) {
@@ -689,16 +710,22 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> previous() async {
     HapticFeedback.selectionClick();
+    if (_currentQueue.isEmpty) {
+      return;
+    }
     if (_position.inSeconds > 3) {
       await seekTo(Duration.zero);
     } else if (_player.hasPrevious) {
       await _player.seekToPrevious();
-    } else if (_repeatMode == PlayerRepeatMode.all) {
-      await _player.seek(Duration.zero, index: _currentQueue.length - 1);
+    } else if (_repeatMode == PlayerRepeatMode.all && _currentQueue.isNotEmpty) {
+      final lastIndex = _currentQueue.length - 1;
+      await _player.seek(Duration.zero, index: lastIndex >= 0 ? lastIndex : 0);
     }
   }
 
   Future<void> seekTo(Duration position) async {
+    _position = position;
+    positionNotifier.value = position;
     await _player.seek(position);
   }
 
@@ -732,6 +759,7 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   void setSleepTimer(Duration duration, {bool fadeOut = true}) {
     _cancelSleepTimers();
+    _sleepOnTrackEnd = false;
     _preFadeVolume = _player.volume;
     _sleepTimerEndTime = DateTime.now().add(duration);
 
@@ -750,6 +778,14 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
     });
 
+    notifyListeners();
+  }
+
+  void setSleepOnTrackEnd(bool enable) {
+    _sleepOnTrackEnd = enable;
+    if (enable) {
+      _cancelSleepTimers();
+    }
     notifyListeners();
   }
 
@@ -772,6 +808,7 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   void cancelSleepTimer() {
     _cancelSleepTimers();
+    _sleepOnTrackEnd = false;
     _player.setVolume(_preFadeVolume);
     notifyListeners();
   }
@@ -786,6 +823,38 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
     _sleepTimerEndTime = null;
   }
 
+  // ── Song deletion & folder cache management ────────────────────────────────
+
+  void handleSongDeleted(int songId) {
+    _allSongs.removeWhere((s) => s.id == songId);
+    _favoriteIds.remove(songId);
+    _rebuildFolderCache();
+
+    final queueIndex = _currentQueue.indexWhere((s) => s.id == songId);
+    if (queueIndex != -1) {
+      removeFromQueue(queueIndex);
+    } else {
+      notifyListeners();
+    }
+  }
+
+  void _rebuildFolderCache() {
+    final folderSet = <String>{};
+    final counts = <String, int>{};
+    for (final song in _allSongs) {
+      if (song.folderName != null) {
+        folderSet.add(song.folderName!);
+        counts[song.folderName!] = (counts[song.folderName!] ?? 0) + 1;
+      }
+    }
+    for (final f in _folders) {
+      folderSet.add(f);
+      counts.putIfAbsent(f, () => 0);
+    }
+    _folders = folderSet.toList()..sort();
+    _folderSongCounts = counts;
+  }
+
   // ── Dispose ────────────────────────────────────────────────────────────────
 
   @override
@@ -795,6 +864,8 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
     for (final sub in _subscriptions) {
       sub.cancel();
     }
+    _subscriptions.clear();
+    positionNotifier.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _player.dispose();
     super.dispose();

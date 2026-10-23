@@ -110,6 +110,7 @@ class MainActivity : AudioServiceActivity() {
                     "getPlaylistInfo" -> {
                         val url = call.argument<String>("url")
                         val cookies = call.argument<String>("cookies") ?: ""
+                        val quality = call.argument<String>("quality") ?: "best"
                         val extractSingle = call.argument<Boolean>("extractSingle") ?: false
                         if (url == null) {
                             result.error("INVALID_ARGUMENT", "url must not be null", null)
@@ -139,6 +140,7 @@ class MainActivity : AudioServiceActivity() {
                         val album = call.argument<String>("album") ?: ""
                         val thumbnailUrl = call.argument<String>("thumbnailUrl") ?: ""
                         val cookies = call.argument<String>("cookies") ?: ""
+                        val quality = call.argument<String>("quality") ?: "best"
                         if (url == null || outPath == null) {
                             result.error("INVALID_ARGUMENT", "url and outPath must not be null", null)
                             return@setMethodCallHandler
@@ -156,6 +158,49 @@ class MainActivity : AudioServiceActivity() {
                                     album,
                                     thumbnailUrl,
                                     cookies
+                                ).toString()
+                                
+                                runOnUiThread {
+                                    if (downloadResult.startsWith("ERROR:")) {
+                                        result.error("YTDLP_ERROR", downloadResult, null)
+                                    } else {
+                                        result.success(downloadResult)
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                runOnUiThread {
+                                    result.error("YTDLP_EXCEPTION", e.message, null)
+                                }
+                            }
+                        }
+                    }
+                    "downloadVideo" -> {
+                        val url = call.argument<String>("url")
+                        val outPath = call.argument<String>("outPath")
+                        val title = call.argument<String>("title") ?: ""
+                        val artist = call.argument<String>("artist") ?: ""
+                        val album = call.argument<String>("album") ?: ""
+                        val thumbnailUrl = call.argument<String>("thumbnailUrl") ?: ""
+                        val cookies = call.argument<String>("cookies") ?: ""
+                        val quality = call.argument<String>("quality") ?: "best"
+                        if (url == null || outPath == null) {
+                            result.error("INVALID_ARGUMENT", "url and outPath must not be null", null)
+                            return@setMethodCallHandler
+                        }
+                        backgroundExecutor.execute {
+                            try {
+                                val py = Python.getInstance()
+                                val module = py.getModule("ytdlp_helper")
+                                val downloadResult = module.callAttr(
+                                    "download_video",
+                                    url,
+                                    outPath,
+                                    title,
+                                    artist,
+                                    album,
+                                    thumbnailUrl,
+                                    cookies,
+                                    quality
                                 ).toString()
                                 
                                 runOnUiThread {
@@ -259,6 +304,7 @@ class MainActivity : AudioServiceActivity() {
                             }
 
                             val response = mapOf(
+                                "isAvailable" to (equalizer != null),
                                 "numBands" to numBands,
                                 "minLevel" to minLevel,
                                 "maxLevel" to maxLevel,
@@ -370,13 +416,18 @@ class MainActivity : AudioServiceActivity() {
                                 val module = py.getModule("ytdlp_helper")
                                 val res = module.callAttr("set_audio_tags", path, title, artist, album).toString()
                                 
-                                // Re-escaneo multimedia
-                                MediaScannerConnection.scanFile(applicationContext, arrayOf(path), null, null)
-                                
-                                runOnUiThread {
-                                    if (res == "SUCCESS") {
-                                        result.success(true)
-                                    } else {
+                                if (res == "SUCCESS") {
+                                    MediaScannerConnection.scanFile(
+                                        applicationContext,
+                                        arrayOf(path),
+                                        null
+                                    ) { _, _ ->
+                                        runOnUiThread {
+                                            result.success(true)
+                                        }
+                                    }
+                                } else {
+                                    runOnUiThread {
                                         result.error("TAG_ERROR", res, null)
                                     }
                                 }

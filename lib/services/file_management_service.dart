@@ -37,13 +37,14 @@ class FileManagementService {
     return '/storage/emulated/0/Music';
   }
 
-  /// Limpia nombres de archivos o carpetas eliminando caracteres inválidos
+  /// Limpia nombres de archivos o carpetas eliminando caracteres inválidos y previniendo path traversal
   static String sanitizeFileName(String name) {
-    var cleaned = name
-        .replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_')
-        .trim();
-    // Eliminar puntos o espacios finales que dan error en Android/FAT32/exFAT
-    cleaned = cleaned.replaceAll(RegExp(r'[.\s]+$'), '');
+    // 1. Eliminar puntos o espacios finales primero (error común en FAT32/exFAT)
+    var cleaned = name.replaceAll(RegExp(r'[.\s]+$'), '').trim();
+    // 2. Reemplazar caracteres ilegales del sistema de archivos por guión bajo
+    cleaned = cleaned.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_');
+    // 3. Neutralizar secuencias restantes de dos o más puntos consecutivos (anti path traversal)
+    cleaned = cleaned.replaceAll(RegExp(r'\.{2,}'), '_');
     if (cleaned.isEmpty || cleaned.replaceAll(RegExp(r'[_.\s]'), '').isEmpty) {
       return 'unnamed';
     }

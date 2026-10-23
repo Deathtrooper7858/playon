@@ -65,14 +65,16 @@ class MiniPlayer extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Progress line at top (aislado con Selector para ahorro de CPU/GPU)
+                    // Progress line at top (aislado con ValueListenableBuilder para fluidez y ahorro de CPU)
                     ClipRRect(
                       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                      child: Selector<MusicProvider, double>(
-                        selector: (_, p) => (p.duration.inMilliseconds > 0)
-                            ? (p.position.inMilliseconds / p.duration.inMilliseconds).clamp(0.0, 1.0)
-                            : 0.0,
-                        builder: (_, prog, __) {
+                      child: ValueListenableBuilder<Duration>(
+                        valueListenable: provider.positionNotifier,
+                        builder: (_, pos, __) {
+                          final dur = provider.duration;
+                          final prog = (dur.inMilliseconds > 0)
+                              ? (pos.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0)
+                              : 0.0;
                           return LinearProgressIndicator(
                             value: prog,
                             backgroundColor: PlayOnTheme.divider,

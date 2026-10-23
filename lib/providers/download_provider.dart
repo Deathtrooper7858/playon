@@ -5,11 +5,14 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yte;
+import '../models/video_model.dart';
 import '../services/cookie_service.dart';
 import '../services/native_media_scanner_service.dart';
 import '../services/native_notification_service.dart';
 import '../services/native_ytdlp_service.dart';
+import '../services/file_management_service.dart';
 import 'music_provider.dart';
+import 'video_provider.dart';
 
 enum DownloadStatus { idle, fetchingInfo, downloading, done, error }
 
@@ -58,12 +61,18 @@ class RecentDownloadItem {
   final String playlistTitle;
   final int trackCount;
   final DateTime date;
+  final bool isVideo;
+  final String? lastVideoPath;
+  final String? lastThumbnailPath;
 
   const RecentDownloadItem({
     required this.folderName,
     required this.playlistTitle,
     required this.trackCount,
     required this.date,
+    this.isVideo = false,
+    this.lastVideoPath,
+    this.lastThumbnailPath,
   });
 
   Map<String, dynamic> toMap() => {
@@ -71,6 +80,9 @@ class RecentDownloadItem {
         'playlistTitle': playlistTitle,
         'trackCount': trackCount,
         'date': date.millisecondsSinceEpoch,
+        'isVideo': isVideo,
+        'lastVideoPath': lastVideoPath,
+        'lastThumbnailPath': lastThumbnailPath,
       };
 
   factory RecentDownloadItem.fromMap(Map<String, dynamic> map) => RecentDownloadItem(
@@ -78,11 +90,15 @@ class RecentDownloadItem {
         playlistTitle: map['playlistTitle']?.toString() ?? '',
         trackCount: map['trackCount'] as int? ?? 0,
         date: DateTime.fromMillisecondsSinceEpoch(map['date'] as int? ?? 0),
+        isVideo: map['isVideo'] as bool? ?? false,
+        lastVideoPath: map['lastVideoPath']?.toString(),
+        lastThumbnailPath: map['lastThumbnailPath']?.toString(),
       );
 }
 
 class DownloadProvider extends ChangeNotifier {
   final MusicProvider _musicProvider;
+  final VideoProvider? _videoProvider;
 
   DownloadStatus _status = DownloadStatus.idle;
   String _playlistName = '';
@@ -97,6 +113,12 @@ class DownloadProvider extends ChangeNotifier {
   String _statusMessage = '';
   List<RecentDownloadItem> _recentDownloads = [];
 
+  bool _isVideoDownload = false;
+  String _videoQuality = 'best';
+  String? _lastDownloadedVideoPath;
+  String? _lastDownloadedThumbnailPath;
+  String? _lastTargetFolderPath;
+
   // Getters
   DownloadStatus get status => _status;
   String get playlistName => _playlistName;
@@ -109,13 +131,19 @@ class DownloadProvider extends ChangeNotifier {
   String get currentSpeed => _currentSpeed;
   String get statusMessage => _statusMessage;
   List<RecentDownloadItem> get recentDownloads => List.unmodifiable(_recentDownloads);
+  bool get isVideoDownload => _isVideoDownload;
+  String get videoQuality => _videoQuality;
+  String? get lastDownloadedVideoPath => _lastDownloadedVideoPath;
+  String? get lastDownloadedThumbnailPath => _lastDownloadedThumbnailPath;
+  String? get lastTargetFolderPath => _lastTargetFolderPath;
 
   double get progress => _total > 0 ? _downloaded / _total : 0.0;
   bool get isActive =>
       _status == DownloadStatus.fetchingInfo ||
       _status == DownloadStatus.downloading;
 
-  DownloadProvider(this._musicProvider) {
+  DownloadProvider(this._musicProvider, {VideoProvider? videoProvider})
+      : _videoProvider = videoProvider {
     _loadRecentDownloads();
   }
 
@@ -130,7 +158,14 @@ class DownloadProvider extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> _saveRecentDownload(String folderName, String title, int count) async {
+  Future<void> _saveRecentDownload(
+    String folderName,
+    String title,
+    int count, {
+    bool isVideo = false,
+    String? lastVideoPath,
+    String? lastThumbnailPath,
+  }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final item = RecentDownloadItem(
@@ -138,11 +173,14 @@ class DownloadProvider extends ChangeNotifier {
         playlistTitle: title,
         trackCount: count,
         date: DateTime.now(),
+        isVideo: isVideo,
+        lastVideoPath: lastVideoPath,
+        lastThumbnailPath: lastThumbnailPath,
       );
-      _recentDownloads.removeWhere((r) => r.folderName == folderName);
+      _recentDownloads.removeWhere((r) => r.folderName == folderName && r.isVideo == isVideo);
       _recentDownloads.insert(0, item);
-      if (_recentDownloads.length > 10) {
-        _recentDownloads = _recentDownloads.sublist(0, 10);
+      if (_recentDownloads.length > 15) {
+        _recentDownloads = _recentDownloads.sublist(0, 15);
       }
       final strList = _recentDownloads.map((r) => jsonEncode(r.toMap())).toList();
       await prefs.setStringList('recent_downloads', strList);
@@ -170,11 +208,16 @@ class DownloadProvider extends ChangeNotifier {
     _currentTrackProgress = 0.0;
     _currentSpeed = '';
     _statusMessage = '';
+    _isVideoDownload = false;
+    _videoQuality = 'best';
+    _lastDownloadedVideoPath = null;
+    _lastDownloadedThumbnailPath = null;
+    _lastTargetFolderPath = null;
     notifyListeners();
   }
 
   // ── Solicitar permisos de almacenamiento ──────────────────────────────────
-  Future<bool> _requestStoragePermission() async {
+  Future<bool> _requestStoragePermission({bool isVideo = false}) async {
     if (!Platform.isAndroid) return true;
     try {
       if (await Permission.manageExternalStorage.isGranted) return true;
@@ -182,10 +225,17 @@ class DownloadProvider extends ChangeNotifier {
       if (manageStatus.isGranted) return true;
     } catch (_) {}
 
-    try {
-      if (await Permission.audio.isGranted) return true;
-      await Permission.audio.request();
-    } catch (_) {}
+    if (isVideo) {
+      try {
+        if (await Permission.videos.isGranted) return true;
+        await Permission.videos.request();
+      } catch (_) {}
+    } else {
+      try {
+        if (await Permission.audio.isGranted) return true;
+        await Permission.audio.request();
+      } catch (_) {}
+    }
 
     try {
       if (await Permission.storage.isGranted) return true;
@@ -240,17 +290,47 @@ class DownloadProvider extends ChangeNotifier {
     return cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 
-  Future<void> downloadPlaylist(String url, String? customName, {bool singleTrackOnly = false}) async {
+  (String, String) _splitArtistAndTitle(String rawTitle, String rawAuthor) {
+    final clean = _cleanTrackTitle(rawTitle);
+    for (final sep in [' - ', ' – ', ' — ']) {
+      if (clean.contains(sep)) {
+        final parts = clean.split(sep);
+        if (parts.length >= 2) {
+          final possibleArtist = parts[0].trim();
+          final possibleTitle = parts.sublist(1).join(sep).trim();
+          if (possibleArtist.isNotEmpty && possibleTitle.isNotEmpty) {
+            return (possibleArtist, possibleTitle);
+          }
+        }
+      }
+    }
+    final safeArtist = rawAuthor.isNotEmpty ? rawAuthor : 'Artista desconocido';
+    return (safeArtist, clean.isNotEmpty ? clean : 'Pista sin título');
+  }
+
+  Future<void> downloadPlaylist(
+    String url,
+    String? customName, {
+    bool singleTrackOnly = false,
+    bool isVideo = false,
+    String? customBasePath,
+    String videoQuality = 'best',
+  }) async {
     _cancelled = false;
     _status = DownloadStatus.fetchingInfo;
     _downloaded = 0;
     _total = 0;
     _completedTracks = [];
     _errorMessage = '';
+    _isVideoDownload = isVideo;
+    _videoQuality = videoQuality;
+    _lastDownloadedVideoPath = null;
+    _lastDownloadedThumbnailPath = null;
+    _lastTargetFolderPath = null;
     _statusMessage = 'Obteniendo información del enlace...';
     notifyListeners();
 
-    await _requestStoragePermission();
+    await _requestStoragePermission(isVideo: isVideo);
 
     final cookieString = await CookieService.getCookies();
     var normalizedUrl = _normalizeUrl(url);
@@ -261,7 +341,7 @@ class DownloadProvider extends ChangeNotifier {
       normalizedUrl = 'https://www.youtube.com/watch?v=$extractedVid';
     }
 
-    String resolvedPlaylistTitle = 'Descargas';
+    String resolvedPlaylistTitle = isVideo ? 'My videos' : 'Descargas';
     List<DownloadedTrack> resolvedTracks = [];
 
     // ── 1. Intentar resolver con youtube_explode_dart (Rápido: ~1s) ───────────
@@ -275,14 +355,15 @@ class DownloadProvider extends ChangeNotifier {
           final uri = Uri.tryParse(normalizedUrl);
           final listId = uri?.queryParameters['list'];
           if (listId != null && listId.isNotEmpty && !listId.startsWith('RD')) {
-            final playlist = await yt.playlists.get(listId).timeout(const Duration(seconds: 15));
+            final playlist = await yt.playlists.get(listId).timeout(const Duration(seconds: 30));
             resolvedPlaylistTitle = playlist.title;
-            final videos = await yt.playlists.getVideos(playlist.id).toList().timeout(const Duration(seconds: 25));
+            final videos = await yt.playlists.getVideos(playlist.id).toList().timeout(const Duration(seconds: 45));
             for (final v in videos) {
+              final (artist, title) = _splitArtistAndTitle(v.title, v.author);
               resolvedTracks.add(DownloadedTrack(
                 id: v.id.value,
-                title: _cleanTrackTitle(v.title),
-                artist: v.author,
+                title: title,
+                artist: artist,
                 url: 'https://www.youtube.com/watch?v=${v.id.value}',
                 thumbnailUrl: v.thumbnails.highResUrl,
                 success: false,
@@ -293,12 +374,13 @@ class DownloadProvider extends ChangeNotifier {
 
         if (resolvedTracks.isEmpty) {
           final vidId = extractedVid ?? normalizedUrl;
-          final video = await yt.videos.get(yte.VideoId(vidId)).timeout(const Duration(seconds: 15));
-          resolvedPlaylistTitle = _cleanTrackTitle(video.title);
+          final video = await yt.videos.get(yte.VideoId(vidId)).timeout(const Duration(seconds: 30));
+          final (artist, title) = _splitArtistAndTitle(video.title, video.author);
+          resolvedPlaylistTitle = title;
           resolvedTracks.add(DownloadedTrack(
             id: video.id.value,
-            title: _cleanTrackTitle(video.title),
-            artist: video.author,
+            title: title,
+            artist: artist,
             url: 'https://www.youtube.com/watch?v=${video.id.value}',
             thumbnailUrl: video.thumbnails.highResUrl,
             success: false,
@@ -315,15 +397,16 @@ class DownloadProvider extends ChangeNotifier {
             normalizedUrl,
             cookies: cookieString,
             extractSingle: singleTrackOnly || (extractedVid != null && !normalizedUrl.contains('list=PL')),
-          ).timeout(const Duration(seconds: 25));
+          ).timeout(const Duration(seconds: 40));
 
           if (info.tracks.isNotEmpty) {
             resolvedPlaylistTitle = info.title;
             for (final t in info.tracks) {
+              final (artist, title) = _splitArtistAndTitle(t.title, t.artist);
               resolvedTracks.add(DownloadedTrack(
                 id: t.id,
-                title: _cleanTrackTitle(t.title),
-                artist: t.artist,
+                title: title,
+                artist: artist,
                 url: t.url,
                 thumbnailUrl: t.thumbnail.isNotEmpty ? t.thumbnail : null,
                 success: false,
@@ -354,39 +437,65 @@ class DownloadProvider extends ChangeNotifier {
 
       if (customName != null && customName.trim().isNotEmpty) {
         folderName = customName.trim();
-        // Si el usuario eligió una carpeta existente, buscar su ruta física exacta
-        for (final s in _musicProvider.allSongs) {
-          if (s.folderName == folderName && s.folderPath != null && s.folderPath!.isNotEmpty) {
-            existingFolderPath = s.folderPath;
-            break;
+        if (isVideo) {
+          if (_videoProvider != null) {
+            for (final v in _videoProvider!.videos) {
+              if (v.folderName == folderName && v.folderPath.isNotEmpty) {
+                existingFolderPath = v.folderPath;
+                break;
+              }
+            }
+          }
+        } else {
+          for (final s in _musicProvider.allSongs) {
+            if (s.folderName == folderName && s.folderPath != null && s.folderPath!.isNotEmpty) {
+              existingFolderPath = s.folderPath;
+              break;
+            }
           }
         }
       } else {
-        if (resolvedTracks.length > 1 && resolvedPlaylistTitle.isNotEmpty && resolvedPlaylistTitle != 'Descargas' && resolvedPlaylistTitle != 'Descarga') {
-          folderName = resolvedPlaylistTitle;
+        if (isVideo) {
+          // Por defecto para videos: "My videos"
+          folderName = 'My videos';
         } else {
-          folderName = 'Descargas';
+          if (resolvedTracks.length > 1 &&
+              resolvedPlaylistTitle.isNotEmpty &&
+              resolvedPlaylistTitle != 'Descargas' &&
+              resolvedPlaylistTitle != 'Descarga') {
+            folderName = resolvedPlaylistTitle;
+          } else {
+            folderName = 'Descargas';
+          }
         }
       }
 
-      folderName = folderName.replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_').trim();
-      if (folderName.isEmpty) folderName = 'Descargas';
+      folderName = FileManagementService.sanitizeFileName(folderName);
+      if (folderName.isEmpty || folderName == 'unnamed') {
+        folderName = isVideo ? 'My videos' : 'Descargas';
+      }
 
       _playlistName = folderName;
       _total = resolvedTracks.length;
       _status = DownloadStatus.downloading;
       notifyListeners();
 
-      Directory playlistDir;
+      Directory targetDir;
       if (existingFolderPath != null && Directory(existingFolderPath).existsSync()) {
-        playlistDir = Directory(existingFolderPath);
+        targetDir = Directory(existingFolderPath);
+      } else if (isVideo) {
+        final baseDir = await _getVideoDirectory(customBasePath: customBasePath);
+        targetDir = Directory('${baseDir.path}/$folderName');
       } else {
         final baseDir = await _getMusicDirectory();
-        playlistDir = Directory('${baseDir.path}/$folderName');
+        targetDir = Directory('${baseDir.path}/$folderName');
       }
-      await playlistDir.create(recursive: true);
+      await targetDir.create(recursive: true);
+      _lastTargetFolderPath = targetDir.path;
 
-      // ── 3. Descargar cada canción ───────────────────────────────────────────
+      final extension = isVideo ? 'mp4' : 'm4a';
+
+      // ── 3. Descargar cada elemento (Audio o Video) ───────────────────────────
       for (int i = 0; i < resolvedTracks.length; i++) {
         if (_cancelled) break;
 
@@ -397,15 +506,22 @@ class DownloadProvider extends ChangeNotifier {
         _statusMessage = 'Descargando ${i + 1} de $_total...';
         notifyListeners();
 
-        final safeTitle = track.title.replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_').trim();
+        final safeTitle = FileManagementService.sanitizeFileName(track.title);
         final fileName = resolvedTracks.length > 1
-            ? '${(i + 1).toString().padLeft(3, '0')} - $safeTitle.m4a'
-            : '$safeTitle.m4a';
-        final filePath = '${playlistDir.path}/$fileName';
+            ? '${(i + 1).toString().padLeft(3, '0')} - $safeTitle.$extension'
+            : '$safeTitle.$extension';
+        final filePath = '${targetDir.path}/$fileName';
 
         // Si ya existe (reanudación)
         if (File(filePath).existsSync() && File(filePath).lengthSync() > 1024) {
           _downloaded++;
+          if (isVideo) {
+            _lastDownloadedVideoPath = filePath;
+            final thumbPath = filePath.replaceFirst('.mp4', '.thumb.jpg');
+            if (File(thumbPath).existsSync()) {
+              _lastDownloadedThumbnailPath = thumbPath;
+            }
+          }
           _completedTracks.add(DownloadedTrack(
             id: track.id,
             title: track.title,
@@ -422,22 +538,52 @@ class DownloadProvider extends ChangeNotifier {
         String? trackError;
 
         try {
-          await NativeNotificationService.updateProgress(
-            title: 'Descargando "$_playlistName"',
-            text: '[${track.artist}] ${track.title} (${i + 1}/$_total)',
-            progress: i + 1,
-            max: _total,
-          );
+          if (isVideo) {
+            await NativeNotificationService.updateProgress(
+              title: 'Descargando video "$_playlistName"',
+              text: '[${track.artist}] ${track.title} (${i + 1}/$_total)',
+              progress: i + 1,
+              max: _total,
+            );
 
-          await NativeYtDlpService.downloadAudio(
-            url: track.url,
-            outPath: filePath,
-            title: track.title,
-            artist: track.artist,
-            album: _playlistName,
-            thumbnailUrl: track.thumbnailUrl,
-            cookies: cookieString,
-          );
+            try {
+              await NativeYtDlpService.downloadVideo(
+                url: track.url,
+                outPath: filePath,
+                title: track.title,
+                artist: track.artist,
+                album: _playlistName,
+                thumbnailUrl: track.thumbnailUrl,
+                cookies: cookieString,
+                quality: _videoQuality,
+              );
+            } catch (eYtdlp) {
+              debugPrint('yt-dlp falló, activando fallback de video con youtube_explode_dart: $eYtdlp');
+              await _downloadVideoWithYtExplode(track, filePath, cookieString, videoQuality: _videoQuality);
+            }
+          } else {
+            await NativeNotificationService.updateProgress(
+              title: 'Descargando "$_playlistName"',
+              text: '[${track.artist}] ${track.title} (${i + 1}/$_total)',
+              progress: i + 1,
+              max: _total,
+            );
+
+            try {
+              await NativeYtDlpService.downloadAudio(
+                url: track.url,
+                outPath: filePath,
+                title: track.title,
+                artist: track.artist,
+                album: _playlistName,
+                thumbnailUrl: track.thumbnailUrl,
+                cookies: cookieString,
+              );
+            } catch (eYtdlp) {
+              debugPrint('yt-dlp falló, activando fallback de audio con youtube_explode_dart: $eYtdlp');
+              await _downloadAudioWithYtExplode(track, filePath, cookieString);
+            }
+          }
 
           final savedFile = File(filePath);
           if (savedFile.existsSync() && savedFile.lengthSync() > 1024) {
@@ -445,6 +591,28 @@ class DownloadProvider extends ChangeNotifier {
             try {
               await NativeMediaScannerService.scanFile(filePath);
             } catch (_) {}
+
+            if (isVideo) {
+              _lastDownloadedVideoPath = filePath;
+              final thumbPath = filePath.replaceFirst('.mp4', '.thumb.jpg');
+              if (File(thumbPath).existsSync()) {
+                _lastDownloadedThumbnailPath = thumbPath;
+              }
+              final videoObj = PlayOnVideo(
+                id: track.id,
+                title: track.title,
+                author: track.artist,
+                filePath: filePath,
+                thumbnailPath: File(thumbPath).existsSync() ? thumbPath : null,
+                thumbnailUrl: track.thumbnailUrl,
+                duration: 0,
+                fileSize: savedFile.lengthSync(),
+                dateAdded: DateTime.now(),
+                folderName: _playlistName,
+                folderPath: targetDir.path,
+              );
+              await _videoProvider?.registerDownloadedVideo(videoObj);
+            }
           } else {
             trackError = 'No se pudo generar el archivo';
           }
@@ -486,12 +654,23 @@ class DownloadProvider extends ChangeNotifier {
         _currentTrackProgress = 0.0;
         final successfulCount = _completedTracks.where((t) => t.success).length;
         await NativeNotificationService.finishProgress(
-          title: 'Descarga finalizada',
-          text: 'Se completaron $successfulCount de $_total canciones en "$_playlistName"',
+          title: isVideo ? 'Descarga de video finalizada' : 'Descarga finalizada',
+          text: 'Se completaron $successfulCount de $_total ${isVideo ? "videos" : "canciones"} en "$_playlistName"',
         );
         if (successfulCount > 0) {
-          await _saveRecentDownload(_playlistName, resolvedPlaylistTitle, successfulCount);
-          await _musicProvider.loadSongs();
+          await _saveRecentDownload(
+            _playlistName,
+            resolvedPlaylistTitle,
+            successfulCount,
+            isVideo: isVideo,
+            lastVideoPath: _lastDownloadedVideoPath,
+            lastThumbnailPath: _lastDownloadedThumbnailPath,
+          );
+          if (isVideo) {
+            await _videoProvider?.loadVideos();
+          } else {
+            await _musicProvider.loadSongs();
+          }
         }
       }
     } catch (eAll) {
@@ -513,35 +692,77 @@ class DownloadProvider extends ChangeNotifier {
     notifyListeners();
 
     final cookieString = await CookieService.getCookies();
-    final baseDir = await _getMusicDirectory();
-    final playlistDir = Directory('${baseDir.path}/$_playlistName');
+    final isVideo = _isVideoDownload;
+    final Directory playlistDir;
+    if (_lastTargetFolderPath != null && Directory(_lastTargetFolderPath!).existsSync()) {
+      playlistDir = Directory(_lastTargetFolderPath!);
+    } else if (isVideo) {
+      final baseDir = await _getVideoDirectory();
+      playlistDir = Directory('${baseDir.path}/$_playlistName');
+    } else {
+      final baseDir = await _getMusicDirectory();
+      playlistDir = Directory('${baseDir.path}/$_playlistName');
+    }
 
-    for (final track in failed) {
+    final extension = isVideo ? 'mp4' : 'm4a';
+
+    for (int retryIdx = 0; retryIdx < failed.length; retryIdx++) {
       if (_cancelled) break;
+      final track = failed[retryIdx];
 
       _currentTrack = track.title;
       _currentTrackProgress = 0.0;
       _currentSpeed = '';
-      _statusMessage = 'Reintentando descarga...';
+      _statusMessage = 'Reintentando ${retryIdx + 1} de ${failed.length}...';
       notifyListeners();
 
-      final safeTitle = track.title.replaceAll(RegExp(r'[<>:"/\\|?*\x00-\x1F]'), '_').trim();
+      final safeTitle = FileManagementService.sanitizeFileName(track.title);
       final index = _completedTracks.indexOf(track);
-      final fileName = '${(index + 1).toString().padLeft(3, '0')} - $safeTitle.m4a';
+      final fileName = '${(index + 1).toString().padLeft(3, '0')} - $safeTitle.$extension';
       final filePath = '${playlistDir.path}/$fileName';
       bool success = false;
       String? error;
 
       try {
-        await NativeYtDlpService.downloadAudio(
-          url: track.url,
-          outPath: filePath,
-          title: track.title,
-          artist: track.artist,
-          album: _playlistName,
-          thumbnailUrl: track.thumbnailUrl,
-          cookies: cookieString,
+        await NativeNotificationService.updateProgress(
+          title: 'Reintentando "$_playlistName"',
+          text: '[${track.artist}] ${track.title} (${retryIdx + 1}/${failed.length})',
+          progress: retryIdx + 1,
+          max: failed.length,
         );
+
+        if (isVideo) {
+          try {
+            await NativeYtDlpService.downloadVideo(
+              url: track.url,
+              outPath: filePath,
+              title: track.title,
+              artist: track.artist,
+              album: _playlistName,
+              thumbnailUrl: track.thumbnailUrl,
+              cookies: cookieString,
+              quality: _videoQuality,
+            );
+          } catch (eYtdlp) {
+            debugPrint('yt-dlp falló en reintento, usando youtube_explode_dart: $eYtdlp');
+            await _downloadVideoWithYtExplode(track, filePath, cookieString, videoQuality: _videoQuality);
+          }
+        } else {
+          try {
+            await NativeYtDlpService.downloadAudio(
+              url: track.url,
+              outPath: filePath,
+              title: track.title,
+              artist: track.artist,
+              album: _playlistName,
+              thumbnailUrl: track.thumbnailUrl,
+              cookies: cookieString,
+            );
+          } catch (eYtdlp) {
+            debugPrint('yt-dlp falló en reintento, usando youtube_explode_dart: $eYtdlp');
+            await _downloadAudioWithYtExplode(track, filePath, cookieString);
+          }
+        }
 
         final savedFile = File(filePath);
         if (savedFile.existsSync() && savedFile.lengthSync() > 1024) {
@@ -549,6 +770,28 @@ class DownloadProvider extends ChangeNotifier {
           try {
             await NativeMediaScannerService.scanFile(filePath);
           } catch (_) {}
+
+          if (isVideo) {
+            _lastDownloadedVideoPath = filePath;
+            final thumbPath = filePath.replaceFirst('.mp4', '.thumb.jpg');
+            if (File(thumbPath).existsSync()) {
+              _lastDownloadedThumbnailPath = thumbPath;
+            }
+            final videoObj = PlayOnVideo(
+              id: track.id,
+              title: track.title,
+              author: track.artist,
+              filePath: filePath,
+              thumbnailPath: File(thumbPath).existsSync() ? thumbPath : null,
+              thumbnailUrl: track.thumbnailUrl,
+              duration: 0,
+              fileSize: savedFile.lengthSync(),
+              dateAdded: DateTime.now(),
+              folderName: _playlistName,
+              folderPath: playlistDir.path,
+            );
+            await _videoProvider?.registerDownloadedVideo(videoObj);
+          }
         } else {
           error = 'No se pudo generar el archivo';
         }
@@ -572,6 +815,7 @@ class DownloadProvider extends ChangeNotifier {
       );
 
       _completedTracks[index] = updatedTrack;
+      _downloaded = _completedTracks.where((t) => t.success).length;
       notifyListeners();
 
       if (!_cancelled) {
@@ -583,8 +827,46 @@ class DownloadProvider extends ChangeNotifier {
     _statusMessage = '';
     _currentSpeed = '';
     _currentTrackProgress = 0.0;
-    await _musicProvider.loadSongs();
+    final successfulCount = _completedTracks.where((t) => t.success).length;
+    await NativeNotificationService.finishProgress(
+      title: 'Reintento finalizado',
+      text: 'Completadas $successfulCount de $_total en "$_playlistName"',
+    );
+    if (successfulCount > 0) {
+      await _saveRecentDownload(
+        _playlistName,
+        _playlistName,
+        successfulCount,
+        isVideo: isVideo,
+        lastVideoPath: _lastDownloadedVideoPath,
+        lastThumbnailPath: _lastDownloadedThumbnailPath,
+      );
+      if (isVideo) {
+        await _videoProvider?.loadVideos();
+      } else {
+        await _musicProvider.loadSongs();
+      }
+    }
     notifyListeners();
+  }
+
+  Future<void> removeRecentDownload(String folderName, {bool isVideo = false}) async {
+    _recentDownloads.removeWhere((r) => r.folderName == folderName && r.isVideo == isVideo);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final strList = _recentDownloads.map((r) => jsonEncode(r.toMap())).toList();
+      await prefs.setStringList('recent_downloads', strList);
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> clearRecentDownloads() async {
+    _recentDownloads.clear();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('recent_downloads');
+      notifyListeners();
+    } catch (_) {}
   }
 
   Future<Directory> _getMusicDirectory() async {
@@ -597,7 +879,6 @@ class DownloadProvider extends ChangeNotifier {
           final musicDir = Directory('$root${separator}Music');
           try {
             await musicDir.create(recursive: true);
-            // Validar acceso real de escritura en /Music
             final testFile = File('${musicDir.path}/.playon_write_test');
             await testFile.writeAsString('ok');
             if (await testFile.exists()) {
@@ -605,7 +886,6 @@ class DownloadProvider extends ChangeNotifier {
             }
             return musicDir;
           } catch (_) {
-            // Fallback seguro: Almacenamiento externo propio de la app
             final appExternalDir = Directory('${externalDirs.first.path}/Music');
             await appExternalDir.create(recursive: true);
             return appExternalDir;
@@ -620,6 +900,157 @@ class DownloadProvider extends ChangeNotifier {
     await musicDir.create(recursive: true);
     return musicDir;
   }
+
+  Future<Directory> _getVideoDirectory({String? customBasePath}) async {
+    if (customBasePath != null && customBasePath.trim().isNotEmpty) {
+      final dir = Directory(customBasePath.trim());
+      if (!dir.existsSync()) {
+        try {
+          await dir.create(recursive: true);
+        } catch (_) {}
+      }
+      if (dir.existsSync()) return dir;
+    }
+
+    if (Platform.isAndroid) {
+      try {
+        final moviesDir = Directory('/storage/emulated/0/Movies');
+        if (moviesDir.existsSync()) {
+          try {
+            final testFile = File('${moviesDir.path}/.playon_write_test');
+            await testFile.writeAsString('ok');
+            if (await testFile.exists()) {
+              await testFile.delete();
+              return moviesDir;
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+
+      try {
+        final List<Directory>? externalDirs = await getExternalStorageDirectories();
+        if (externalDirs != null && externalDirs.isNotEmpty) {
+          final root = externalDirs.first.path.split('Android/data').first;
+          final separator = root.endsWith('/') ? '' : '/';
+          final moviesDir = Directory('$root${separator}Movies');
+          try {
+            await moviesDir.create(recursive: true);
+            final testFile = File('${moviesDir.path}/.playon_write_test');
+            await testFile.writeAsString('ok');
+            if (await testFile.exists()) {
+              await testFile.delete();
+              return moviesDir;
+            }
+          } catch (_) {
+            final appExternalDir = Directory('${externalDirs.first.path}/Movies');
+            await appExternalDir.create(recursive: true);
+            return appExternalDir;
+          }
+        }
+      } catch (e) {
+        debugPrint('Error obteniendo directorio de videos: $e');
+      }
+    }
+
+    final docs = await getApplicationDocumentsDirectory();
+    final moviesDir = Directory('${docs.path}/Movies');
+    await moviesDir.create(recursive: true);
+    return moviesDir;
+  }
+
+  Future<void> _downloadVideoWithYtExplode(
+    DownloadedTrack track,
+    String filePath,
+    String? cookieString, {
+    String videoQuality = 'best',
+  }) async {
+    final yt = (cookieString != null && cookieString.isNotEmpty)
+        ? yte.YoutubeExplode(httpClient: _CookieHttpClient(cookieString))
+        : yte.YoutubeExplode();
+
+    try {
+      final manifest = await yt.videos.streamsClient.getManifest(track.id);
+      final muxedStreams = manifest.muxed.sortByVideoQuality().toList();
+      if (muxedStreams.isEmpty) {
+        throw Exception('No hay stream de video progresivo disponible para este video.');
+      }
+      // En youtube_explode_dart, sortByVideoQuality() ordena de mayor a menor resolución (descendente)
+      final streamInfo = (videoQuality == '360' || videoQuality == 'low')
+          ? muxedStreams.last
+          : muxedStreams.first;
+      final stream = yt.videos.streamsClient.get(streamInfo);
+      final file = File(filePath);
+      final sink = file.openWrite();
+      await stream.pipe(sink);
+      await sink.flush();
+      await sink.close();
+
+      // Descargar miniatura compañera en alta resolución si existe
+      if (track.thumbnailUrl != null && track.thumbnailUrl!.isNotEmpty) {
+        try {
+          final thumbFile = File(filePath.replaceFirst(RegExp(r'\.mp4$', caseSensitive: false), '.thumb.jpg'));
+          final client = HttpClient();
+          String thumbUrl = track.thumbnailUrl!;
+          if (thumbUrl.contains('i.ytimg.com') || thumbUrl.contains('googleusercontent.com')) {
+            final hq = thumbUrl.replaceAll(RegExp(r'/(?:hqdefault|mqdefault|sddefault|default)\.jpg'), '/maxresdefault.jpg');
+            if (hq != thumbUrl) {
+              try {
+                final testReq = await client.getUrl(Uri.parse(hq));
+                final testResp = await testReq.close();
+                if (testResp.statusCode == 200) {
+                  final thumbSink = thumbFile.openWrite();
+                  await testResp.pipe(thumbSink);
+                  await thumbSink.flush();
+                  await thumbSink.close();
+                  client.close();
+                  return;
+                }
+              } catch (_) {}
+            }
+          }
+
+          final req = await client.getUrl(Uri.parse(thumbUrl));
+          final resp = await req.close();
+          if (resp.statusCode == 200) {
+            final thumbSink = thumbFile.openWrite();
+            await resp.pipe(thumbSink);
+            await thumbSink.flush();
+            await thumbSink.close();
+          }
+          client.close();
+        } catch (_) {}
+      }
+    } finally {
+      yt.close();
+    }
+  }
+
+  Future<void> _downloadAudioWithYtExplode(
+    DownloadedTrack track,
+    String filePath,
+    String? cookieString,
+  ) async {
+    final yt = (cookieString != null && cookieString.isNotEmpty)
+        ? yte.YoutubeExplode(httpClient: _CookieHttpClient(cookieString))
+        : yte.YoutubeExplode();
+
+    try {
+      final manifest = await yt.videos.streamsClient.getManifest(track.id);
+      final audioStreams = manifest.audioOnly.sortByBitrate();
+      if (audioStreams.isEmpty) {
+        throw Exception('No hay stream de audio disponible.');
+      }
+      final streamInfo = audioStreams.first;
+      final stream = yt.videos.streamsClient.get(streamInfo);
+      final file = File(filePath);
+      final sink = file.openWrite();
+      await stream.pipe(sink);
+      await sink.flush();
+      await sink.close();
+    } finally {
+      yt.close();
+    }
+  }
 }
 
 class _CookieHttpClient extends yte.YoutubeHttpClient {
@@ -633,4 +1064,3 @@ class _CookieHttpClient extends yte.YoutubeHttpClient {
         'cookie': _cookieString,
       };
 }
-

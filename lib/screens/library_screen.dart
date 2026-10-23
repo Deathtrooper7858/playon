@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/music_provider.dart';
+import '../providers/video_provider.dart';
 import '../theme.dart';
 import 'library_tabs/favorites_tab.dart';
 import 'library_tabs/folders_tab.dart';
 import 'library_tabs/playlists_tab.dart';
 import 'library_tabs/songs_tab.dart';
+import 'library_tabs/videos_tab.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -24,7 +26,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
   }
 
   @override
@@ -56,6 +58,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                 physics: const BouncingScrollPhysics(),
                 children: [
                   SongsTab(searchQuery: _searchQuery),
+                  VideosTab(searchQuery: _searchQuery),
                   FavoritesTab(
                     searchQuery: _searchQuery,
                     onExploreSongs: () => _tabController.animateTo(0),
@@ -99,7 +102,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                   ),
                 ),
                 Text(
-                  'PlayOn Music',
+                  'PlayOn',
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                         fontWeight: FontWeight.w800,
                         letterSpacing: -0.5,
@@ -111,14 +114,16 @@ class _LibraryScreenState extends State<LibraryScreen>
             IconButton(
               icon: const Icon(Icons.search_rounded),
               color: PlayOnTheme.textSecondary,
-              tooltip: 'Buscar música',
               onPressed: () => setState(() => _showSearch = true),
             ),
             IconButton(
               icon: const Icon(Icons.refresh_rounded),
               color: PlayOnTheme.textSecondary,
               tooltip: 'Actualizar biblioteca',
-              onPressed: () => context.read<MusicProvider>().loadSongs(),
+              onPressed: () {
+                context.read<MusicProvider>().loadSongs();
+                context.read<VideoProvider>().loadVideos();
+              },
             ),
           ] else ...[
             Expanded(
@@ -133,7 +138,7 @@ class _LibraryScreenState extends State<LibraryScreen>
                   autofocus: true,
                   style: const TextStyle(color: PlayOnTheme.textPrimary),
                   decoration: InputDecoration(
-                    hintText: 'Buscar canciones, artistas, álbumes...',
+                    hintText: 'Buscar canciones, videos, artistas...',
                     hintStyle: const TextStyle(color: PlayOnTheme.textTertiary, fontSize: 13.5),
                     border: InputBorder.none,
                     prefixIcon: const Icon(Icons.search_rounded, color: PlayOnTheme.purpleGlow),
@@ -184,9 +189,9 @@ class _LibraryScreenState extends State<LibraryScreen>
       child: TabBar(
         controller: _tabController,
         padding: const EdgeInsets.all(3),
-        labelPadding: const EdgeInsets.symmetric(horizontal: 2),
-        tabAlignment: TabAlignment.fill,
-        isScrollable: false,
+        labelPadding: const EdgeInsets.symmetric(horizontal: 12),
+        tabAlignment: TabAlignment.start,
+        isScrollable: true,
         indicator: BoxDecoration(
           gradient: PlayOnTheme.primaryGradient,
           borderRadius: BorderRadius.circular(11),
@@ -196,33 +201,14 @@ class _LibraryScreenState extends State<LibraryScreen>
         dividerColor: Colors.transparent,
         labelColor: Colors.white,
         unselectedLabelColor: PlayOnTheme.textSecondary,
-        labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
-        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12),
+        labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5),
+        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w500, fontSize: 12.5),
         tabs: const [
-          Tab(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text('Canciones', maxLines: 1),
-            ),
-          ),
-          Tab(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text('Favoritos', maxLines: 1),
-            ),
-          ),
-          Tab(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text('Playlists', maxLines: 1),
-            ),
-          ),
-          Tab(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text('Carpetas', maxLines: 1),
-            ),
-          ),
+          Tab(text: 'Canciones'),
+          Tab(text: 'Videos'),
+          Tab(text: 'Favoritos'),
+          Tab(text: 'Playlists'),
+          Tab(text: 'Carpetas'),
         ],
       ),
     );

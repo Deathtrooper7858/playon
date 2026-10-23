@@ -1,13 +1,19 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
+import '../models/video_model.dart';
 import '../providers/download_provider.dart';
 import '../providers/music_provider.dart';
+import '../providers/video_provider.dart';
 import '../services/cookie_service.dart';
 import '../theme.dart';
 import 'now_playing_screen.dart';
+import 'video_player_screen.dart';
 import 'youtube_login_screen.dart';
+
+enum DownloadFormat { audio, video }
 
 class DownloadScreen extends StatefulWidget {
   const DownloadScreen({super.key});
@@ -19,13 +25,21 @@ class DownloadScreen extends StatefulWidget {
 class _DownloadScreenState extends State<DownloadScreen> {
   final _urlController = TextEditingController();
   final _nameController = TextEditingController();
+  final _customPathController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   String? _lastError;
   bool _hasCookies = false;
 
+  // Formato: Audio (M4A) o Video (MP4)
+  DownloadFormat _downloadFormat = DownloadFormat.audio;
+  String _videoQuality = 'best'; // 'best' (720p HD+), '360' (360p)
+
   bool _singleSongOnly = false;
   String _folderSelectionMode = 'auto'; // 'auto', 'existing', 'custom'
   String? _selectedExistingFolder;
+
+  // Ubicación base ("donde guardar")
+  String _baseLocationPreset = 'movies'; // 'movies', 'download', 'music', 'custom'
 
   DownloadProvider? _downloadProvider;
 
@@ -87,6 +101,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
     _downloadProvider = null;
     _urlController.dispose();
     _nameController.dispose();
+    _customPathController.dispose();
     super.dispose();
   }
 
@@ -94,20 +109,43 @@ class _DownloadScreenState extends State<DownloadScreen> {
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
 
+    final isVideo = _downloadFormat == DownloadFormat.video;
     String? targetFolder;
-    if (_folderSelectionMode == 'existing' && _selectedExistingFolder != null && _selectedExistingFolder!.isNotEmpty) {
+
+    if (_folderSelectionMode == 'existing' &&
+        _selectedExistingFolder != null &&
+        _selectedExistingFolder!.isNotEmpty) {
       targetFolder = _selectedExistingFolder;
     } else if (_nameController.text.trim().isNotEmpty) {
       targetFolder = _nameController.text.trim();
     } else {
-      // Dejar en blanco para que DownloadProvider cree automáticamente una nueva carpeta
-      targetFolder = null;
+      // Si está en modo automático o vacío:
+      // Para video -> 'My videos'
+      // Para audio -> null (para que use el título de playlist o 'Descargas')
+      targetFolder = isVideo ? 'My videos' : null;
+    }
+
+    String? customBasePath;
+    if (isVideo) {
+      if (_baseLocationPreset == 'download') {
+        customBasePath = '/storage/emulated/0/Download';
+      } else if (_baseLocationPreset == 'music') {
+        customBasePath = '/storage/emulated/0/Music';
+      } else if (_baseLocationPreset == 'custom' && _customPathController.text.trim().isNotEmpty) {
+        customBasePath = _customPathController.text.trim();
+      } else {
+        // 'movies' -> por defecto en carpeta Movies
+        customBasePath = '/storage/emulated/0/Movies';
+      }
     }
 
     provider.downloadPlaylist(
       _urlController.text.trim(),
       targetFolder,
       singleTrackOnly: _singleSongOnly,
+      isVideo: isVideo,
+      customBasePath: customBasePath,
+      videoQuality: _videoQuality,
     );
   }
 
@@ -136,7 +174,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildHeader(),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
 
                   if (!provider.isActive && provider.status != DownloadStatus.done) ...[
                     _buildForm(provider),
@@ -180,11 +218,11 @@ class _DownloadScreenState extends State<DownloadScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Download',
+                    'Descargas',
                     style: Theme.of(context).textTheme.headlineLarge?.copyWith(fontSize: 26),
                   ),
                   const Text(
-                    'YouTube Music & Video → tu biblioteca',
+                    'Música y Videos de YouTube → Tu dispositivo',
                     style: TextStyle(color: PlayOnTheme.textSecondary, fontSize: 13),
                   ),
                 ],
@@ -236,18 +274,174 @@ class _DownloadScreenState extends State<DownloadScreen> {
 
   Widget _buildForm(DownloadProvider provider) {
     final musicProv = context.watch<MusicProvider>();
-    final existingFolders = musicProv.folders.where((f) => f.isNotEmpty).toList();
+    final videoProv = context.watch<VideoProvider>();
+    final isVideo = _downloadFormat == DownloadFormat.video;
+
+    final existingFolders = isVideo
+        ? (videoProv.folders.isNotEmpty ? videoProv.folders : ['My videos'])
+        : musicProv.folders.where((f) => f.isNotEmpty).toList();
 
     return Form(
       key: _formKey,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Selector de Formato: AUDIO vs VIDEO
+          _buildLabel('TIPO DE CONTENIDO A DESCARGAR'),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: PlayOnTheme.bgSurface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: PlayOnTheme.glassBorder),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _downloadFormat = DownloadFormat.audio;
+                        _selectedExistingFolder = null;
+                        _nameController.clear();
+                      });
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      decoration: BoxDecoration(
+                        gradient: !isVideo ? PlayOnTheme.primaryGradient : null,
+                        color: !isVideo ? null : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: !isVideo ? PlayOnTheme.glowShadow(blur: 10) : null,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.music_note_rounded,
+                            size: 18,
+                            color: !isVideo ? Colors.white : PlayOnTheme.textSecondary,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Audio (M4A)',
+                            style: TextStyle(
+                              color: !isVideo ? Colors.white : PlayOnTheme.textSecondary,
+                              fontWeight: !isVideo ? FontWeight.bold : FontWeight.w500,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _downloadFormat = DownloadFormat.video;
+                        _selectedExistingFolder = null;
+                        _nameController.clear();
+                      });
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(vertical: 11),
+                      decoration: BoxDecoration(
+                        gradient: isVideo ? PlayOnTheme.primaryGradient : null,
+                        color: isVideo ? null : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: isVideo ? PlayOnTheme.glowShadow(blur: 10) : null,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.videocam_rounded,
+                            size: 19,
+                            color: isVideo ? Colors.white : PlayOnTheme.textSecondary,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Video (MP4)',
+                            style: TextStyle(
+                              color: isVideo ? Colors.white : PlayOnTheme.textSecondary,
+                              fontWeight: isVideo ? FontWeight.bold : FontWeight.w500,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          if (isVideo) ...[
+            const SizedBox(height: 12),
+            _buildLabel('CALIDAD DE VIDEO'),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.hd_rounded, size: 16, color: PlayOnTheme.cyanAccent),
+                        SizedBox(width: 6),
+                        Text('Alta Calidad (720p HD+)'),
+                      ],
+                    ),
+                    selected: _videoQuality == 'best',
+                    selectedColor: PlayOnTheme.purplePrimary.withValues(alpha: 0.35),
+                    backgroundColor: PlayOnTheme.bgSurface,
+                    labelStyle: TextStyle(
+                      color: _videoQuality == 'best' ? PlayOnTheme.cyanAccent : PlayOnTheme.textSecondary,
+                      fontWeight: _videoQuality == 'best' ? FontWeight.bold : FontWeight.normal,
+                      fontSize: 12,
+                    ),
+                    onSelected: (_) => setState(() => _videoQuality = 'best'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ChoiceChip(
+                    label: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.sd_rounded, size: 16, color: PlayOnTheme.amberWarning),
+                        SizedBox(width: 6),
+                        Text('Ahorro (360p)'),
+                      ],
+                    ),
+                    selected: _videoQuality == '360',
+                    selectedColor: PlayOnTheme.purplePrimary.withValues(alpha: 0.35),
+                    backgroundColor: PlayOnTheme.bgSurface,
+                    labelStyle: TextStyle(
+                      color: _videoQuality == '360' ? PlayOnTheme.amberWarning : PlayOnTheme.textSecondary,
+                      fontWeight: _videoQuality == '360' ? FontWeight.bold : FontWeight.normal,
+                      fontSize: 12,
+                    ),
+                    onSelected: (_) => setState(() => _videoQuality = '360'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+
+          const SizedBox(height: 18),
+
           // URL field
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Flexible(child: _buildLabel('URL DE YOUTUBE MUSIC O YOUTUBE')),
+              Flexible(child: _buildLabel('URL DE YOUTUBE O YOUTUBE MUSIC')),
               GestureDetector(
                 onTap: () async {
                   final data = await Clipboard.getData(Clipboard.kTextPlain);
@@ -261,7 +455,6 @@ class _DownloadScreenState extends State<DownloadScreen> {
                     }
                     _urlController.text = cleaned;
 
-                    // Auto-detect mode
                     setState(() {
                       if (cleaned.contains('list=') && !cleaned.contains('list=RD')) {
                         _singleSongOnly = false;
@@ -317,7 +510,9 @@ class _DownloadScreenState extends State<DownloadScreen> {
           const SizedBox(height: 8),
           _buildTextField(
             controller: _urlController,
-            hint: 'https://music.youtube.com/playlist?list=... o watch?v=...',
+            hint: isVideo
+                ? 'https://www.youtube.com/watch?v=... o shorts/...'
+                : 'https://music.youtube.com/playlist?list=... o watch?v=...',
             icon: Icons.link_rounded,
             onChanged: (val) {
               if (val.contains('list=') && !val.contains('list=RD')) {
@@ -335,7 +530,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
 
           const SizedBox(height: 16),
 
-          // Modo de descarga (Canción sola vs Playlist)
+          // Modo de descarga (Individual vs Playlist)
           _buildLabel('MODO DE DESCARGA'),
           const SizedBox(height: 8),
           Row(
@@ -356,10 +551,14 @@ class _DownloadScreenState extends State<DownloadScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.queue_music_rounded, size: 18, color: !_singleSongOnly ? PlayOnTheme.purpleGlow : PlayOnTheme.textSecondary),
+                        Icon(
+                          isVideo ? Icons.video_collection_rounded : Icons.queue_music_rounded,
+                          size: 18,
+                          color: !_singleSongOnly ? PlayOnTheme.purpleGlow : PlayOnTheme.textSecondary,
+                        ),
                         const SizedBox(width: 6),
                         Text(
-                          'Playlist Completa',
+                          isVideo ? 'Playlist de Videos' : 'Playlist Completa',
                           style: TextStyle(
                             color: !_singleSongOnly ? PlayOnTheme.textPrimary : PlayOnTheme.textSecondary,
                             fontWeight: !_singleSongOnly ? FontWeight.bold : FontWeight.normal,
@@ -388,10 +587,14 @@ class _DownloadScreenState extends State<DownloadScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.music_note_rounded, size: 18, color: _singleSongOnly ? PlayOnTheme.purpleGlow : PlayOnTheme.textSecondary),
+                        Icon(
+                          isVideo ? Icons.movie_rounded : Icons.music_note_rounded,
+                          size: 18,
+                          color: _singleSongOnly ? PlayOnTheme.purpleGlow : PlayOnTheme.textSecondary,
+                        ),
                         const SizedBox(width: 6),
                         Text(
-                          'Solo esta Canción',
+                          isVideo ? 'Solo este Video' : 'Solo esta Canción',
                           style: TextStyle(
                             color: _singleSongOnly ? PlayOnTheme.textPrimary : PlayOnTheme.textSecondary,
                             fontWeight: _singleSongOnly ? FontWeight.bold : FontWeight.normal,
@@ -408,31 +611,31 @@ class _DownloadScreenState extends State<DownloadScreen> {
 
           const SizedBox(height: 18),
 
-          // Carpeta de destino
+          // Ubicación y Carpeta de destino
           Row(
             children: [
-              _buildLabel('CARPETA DE DESTINO'),
+              _buildLabel(isVideo ? 'CARPETA Y UBICACIÓN DEL VIDEO' : 'CARPETA DE DESTINO'),
               const Spacer(),
               Text(
                 _folderSelectionMode == 'auto'
-                    ? '⚡ Automática (Nueva)'
+                    ? (isVideo ? '📁 Por defecto: My videos' : '⚡ Automática (Nueva)')
                     : _folderSelectionMode == 'existing'
                         ? '📁 Existente'
-                        : '✏️ Personalizada',
+                        : '✏️ Nombre personalizado',
                 style: const TextStyle(color: PlayOnTheme.purpleGlow, fontSize: 11, fontWeight: FontWeight.bold),
               ),
             ],
           ),
           const SizedBox(height: 8),
 
-          // Chips para alternar modo de carpeta
+          // Chips de modo de carpeta
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             physics: const BouncingScrollPhysics(),
             child: Row(
               children: [
                 ChoiceChip(
-                  label: const Text('⚡ Crear nueva (Automático)'),
+                  label: Text(isVideo ? '📁 Por defecto (My videos)' : '⚡ Crear nueva (Automático)'),
                   selected: _folderSelectionMode == 'auto',
                   selectedColor: PlayOnTheme.purplePrimary.withValues(alpha: 0.3),
                   backgroundColor: PlayOnTheme.bgSurface,
@@ -452,30 +655,8 @@ class _DownloadScreenState extends State<DownloadScreen> {
                   },
                 ),
                 const SizedBox(width: 8),
-                if (existingFolders.isNotEmpty) ...[
-                  ChoiceChip(
-                    label: const Text('📁 Elegir existente'),
-                    selected: _folderSelectionMode == 'existing',
-                    selectedColor: PlayOnTheme.purplePrimary.withValues(alpha: 0.3),
-                    backgroundColor: PlayOnTheme.bgSurface,
-                    labelStyle: TextStyle(
-                      color: _folderSelectionMode == 'existing' ? PlayOnTheme.purpleGlow : PlayOnTheme.textSecondary,
-                      fontSize: 12,
-                      fontWeight: _folderSelectionMode == 'existing' ? FontWeight.bold : FontWeight.normal,
-                    ),
-                    onSelected: (selected) {
-                      if (selected) {
-                        setState(() {
-                          _folderSelectionMode = 'existing';
-                          _selectedExistingFolder ??= existingFolders.first;
-                        });
-                      }
-                    },
-                  ),
-                  const SizedBox(width: 8),
-                ],
                 ChoiceChip(
-                  label: const Text('✏️ Nombre específico'),
+                  label: const Text('✏️ Como ponerle a la carpeta'),
                   selected: _folderSelectionMode == 'custom',
                   selectedColor: PlayOnTheme.purplePrimary.withValues(alpha: 0.3),
                   backgroundColor: PlayOnTheme.bgSurface,
@@ -493,12 +674,34 @@ class _DownloadScreenState extends State<DownloadScreen> {
                     }
                   },
                 ),
+                if (existingFolders.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('📂 Elegir existente'),
+                    selected: _folderSelectionMode == 'existing',
+                    selectedColor: PlayOnTheme.purplePrimary.withValues(alpha: 0.3),
+                    backgroundColor: PlayOnTheme.bgSurface,
+                    labelStyle: TextStyle(
+                      color: _folderSelectionMode == 'existing' ? PlayOnTheme.purpleGlow : PlayOnTheme.textSecondary,
+                      fontSize: 12,
+                      fontWeight: _folderSelectionMode == 'existing' ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    onSelected: (selected) {
+                      if (selected) {
+                        setState(() {
+                          _folderSelectionMode = 'existing';
+                          _selectedExistingFolder ??= existingFolders.first;
+                        });
+                      }
+                    },
+                  ),
+                ],
               ],
             ),
           ),
           const SizedBox(height: 10),
 
-          // Detalle según el modo de carpeta
+          // Selector de Carpeta según modo
           if (_folderSelectionMode == 'existing' && existingFolders.isNotEmpty)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
@@ -514,12 +717,18 @@ class _DownloadScreenState extends State<DownloadScreen> {
                   dropdownColor: PlayOnTheme.bgCard,
                   icon: const Icon(Icons.keyboard_arrow_down_rounded, color: PlayOnTheme.purpleGlow),
                   items: existingFolders.map((f) {
-                    final songCount = musicProv.allSongs.where((s) => s.folderName == f).length;
+                    final count = isVideo
+                        ? (videoProv.folderCounts[f] ?? 0)
+                        : musicProv.allSongs.where((s) => s.folderName == f).length;
                     return DropdownMenuItem<String>(
                       value: f,
                       child: Row(
                         children: [
-                          const Icon(Icons.folder_rounded, color: PlayOnTheme.pinkAccent, size: 18),
+                          Icon(
+                            isVideo ? Icons.video_library_rounded : Icons.folder_rounded,
+                            color: PlayOnTheme.pinkAccent,
+                            size: 18,
+                          ),
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
@@ -529,7 +738,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
                             ),
                           ),
                           Text(
-                            '$songCount canciones',
+                            isVideo ? '$count videos' : '$count canciones',
                             style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 11),
                           ),
                         ],
@@ -544,20 +753,102 @@ class _DownloadScreenState extends State<DownloadScreen> {
                 ),
               ),
             )
-          else
+          else if (_folderSelectionMode == 'custom')
             _buildTextField(
               controller: _nameController,
-              hint: _folderSelectionMode == 'auto'
-                  ? 'Vacío = Crea carpeta con el nombre de la playlist/canción'
+              hint: isVideo
+                  ? 'Escribe el nombre de la carpeta (o vacío = My videos)'
                   : 'Ej: Mis Éxitos 2026',
               icon: Icons.create_new_folder_rounded,
               validator: null,
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: PlayOnTheme.bgSurface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: PlayOnTheme.glassBorder),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    isVideo ? Icons.folder_special_rounded : Icons.auto_awesome_rounded,
+                    color: PlayOnTheme.purpleGlow,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          isVideo ? 'Carpeta por defecto: "My videos"' : 'Creación automática según playlist',
+                          style: const TextStyle(
+                            color: PlayOnTheme.textPrimary,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        Text(
+                          isVideo
+                              ? 'Los videos se guardarán organizados en tu carpeta "My videos".'
+                              : 'Se creará una carpeta con el título del enlace o "Descargas".',
+                          style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
 
-          const SizedBox(height: 24),
+          // Selector de Ubicación Base para Videos ("donde guardar")
+          if (isVideo) ...[
+            const SizedBox(height: 14),
+            _buildLabel('DONDE GUARDAR EN EL DISPOSITIVO'),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                _buildLocationChip(
+                  label: '🎬 Movies / Películas (Estándar)',
+                  preset: 'movies',
+                  tooltip: '/storage/emulated/0/Movies',
+                ),
+                _buildLocationChip(
+                  label: '📥 Descargas (Download)',
+                  preset: 'download',
+                  tooltip: '/storage/emulated/0/Download',
+                ),
+                _buildLocationChip(
+                  label: '🎵 Carpeta Music',
+                  preset: 'music',
+                  tooltip: '/storage/emulated/0/Music',
+                ),
+                _buildLocationChip(
+                  label: '🗂️ Otra ruta...',
+                  preset: 'custom',
+                  tooltip: 'Ruta física personalizada',
+                ),
+              ],
+            ),
+            if (_baseLocationPreset == 'custom') ...[
+              const SizedBox(height: 8),
+              _buildTextField(
+                controller: _customPathController,
+                hint: 'Ruta exacta (ej: /storage/emulated/0/PlayOnVideos)',
+                icon: Icons.folder_open_rounded,
+                validator: null,
+              ),
+            ],
+          ],
+
+          const SizedBox(height: 20),
 
           // Info card
-          _buildInfoCard(),
+          _buildInfoCard(isVideo),
 
           const SizedBox(height: 24),
 
@@ -595,13 +886,16 @@ class _DownloadScreenState extends State<DownloadScreen> {
                           strokeWidth: 2,
                         ),
                       )
-                    : const Icon(Icons.download_rounded, color: Colors.white),
+                    : Icon(
+                        isVideo ? Icons.videocam_rounded : Icons.download_rounded,
+                        color: Colors.white,
+                      ),
                 label: Text(
                   provider.status == DownloadStatus.fetchingInfo
                       ? 'Analizando enlace...'
-                      : _singleSongOnly
-                          ? 'Descargar Canción'
-                          : 'Descargar Playlist',
+                      : isVideo
+                          ? (_singleSongOnly ? 'Descargar Video' : 'Descargar Videos')
+                          : (_singleSongOnly ? 'Descargar Canción' : 'Descargar Playlist'),
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 16,
@@ -622,16 +916,57 @@ class _DownloadScreenState extends State<DownloadScreen> {
           // Recent downloads section
           if (provider.recentDownloads.isNotEmpty) ...[
             const SizedBox(height: 32),
-            _buildLabel('DESCARGAS RECIENTES'),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _buildLabel('DESCARGAS RECIENTES'),
+                GestureDetector(
+                  onTap: () => provider.clearRecentDownloads(),
+                  child: const Text(
+                    'Limpiar historial',
+                    style: TextStyle(
+                      color: PlayOnTheme.textTertiary,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 10),
-            ...provider.recentDownloads.map((item) => _buildRecentDownloadTile(item)),
+            ...provider.recentDownloads.map((item) => _buildRecentDownloadTile(item, provider)),
           ],
         ],
       ).animate().fadeIn(duration: 500.ms, delay: 100.ms).slideY(begin: 0.05, end: 0),
     );
   }
 
-  Widget _buildRecentDownloadTile(RecentDownloadItem item) {
+  Widget _buildLocationChip({
+    required String label,
+    required String preset,
+    required String tooltip,
+  }) {
+    final isSelected = _baseLocationPreset == preset;
+    return ChoiceChip(
+      label: Text(label),
+      tooltip: tooltip,
+      selected: isSelected,
+      selectedColor: PlayOnTheme.purplePrimary.withValues(alpha: 0.35),
+      backgroundColor: PlayOnTheme.bgSurface,
+      labelStyle: TextStyle(
+        color: isSelected ? PlayOnTheme.purpleGlow : PlayOnTheme.textSecondary,
+        fontSize: 11.5,
+        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+      ),
+      onSelected: (val) {
+        if (val) setState(() => _baseLocationPreset = preset);
+      },
+    );
+  }
+
+  Widget _buildRecentDownloadTile(RecentDownloadItem item, DownloadProvider provider) {
+    final isVideo = item.isVideo;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
@@ -642,36 +977,111 @@ class _DownloadScreenState extends State<DownloadScreen> {
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
         leading: Container(
-          width: 42,
-          height: 42,
+          width: 44,
+          height: 44,
           decoration: BoxDecoration(
             color: PlayOnTheme.bgSurface,
             borderRadius: BorderRadius.circular(10),
-            gradient: PlayOnTheme.cyanGradient,
+            gradient: isVideo ? PlayOnTheme.primaryGradient : PlayOnTheme.cyanGradient,
           ),
-          child: const Icon(Icons.folder_special_rounded, color: Colors.white, size: 22),
+          child: Icon(
+            isVideo ? Icons.movie_creation_rounded : Icons.folder_special_rounded,
+            color: Colors.white,
+            size: 22,
+          ),
         ),
-        title: Text(
-          item.folderName,
-          style: const TextStyle(color: PlayOnTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+        title: Row(
+          children: [
+            if (isVideo)
+              Container(
+                margin: const EdgeInsets.only(right: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                decoration: BoxDecoration(
+                  color: PlayOnTheme.purplePrimary.withValues(alpha: 0.3),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: const Text(
+                  'VIDEO',
+                  style: TextStyle(color: PlayOnTheme.purpleGlow, fontSize: 9.5, fontWeight: FontWeight.bold),
+                ),
+              ),
+            Expanded(
+              child: Text(
+                item.folderName,
+                style: const TextStyle(color: PlayOnTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.w600),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
         ),
         subtitle: Text(
-          '${item.trackCount} canciones guardadas',
+          '${item.trackCount} ${isVideo ? "videos guardados" : "canciones guardadas"}',
           style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 12),
         ),
-        trailing: IconButton(
-          icon: const Icon(Icons.play_circle_fill_rounded, color: PlayOnTheme.purpleGlow, size: 32),
-          tooltip: 'Reproducir carpeta',
-          onPressed: () {
-            final musicProv = context.read<MusicProvider>();
-            final songs = musicProv.allSongs.where((s) => s.folderName == item.folderName).toList();
-            if (songs.isNotEmpty) {
-              musicProv.playCustomQueue(songs, 0);
-              NowPlayingScreen.open(context);
-            }
-          },
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: Icon(
+                isVideo ? Icons.play_circle_rounded : Icons.play_circle_fill_rounded,
+                color: PlayOnTheme.purpleGlow,
+                size: 30,
+              ),
+              tooltip: isVideo ? 'Reproducir video' : 'Reproducir carpeta',
+              onPressed: () {
+                if (isVideo) {
+                  final videoProv = context.read<VideoProvider>();
+                  // Buscar el video o el primer video de esa carpeta
+                  PlayOnVideo? target;
+                  if (item.lastVideoPath != null) {
+                    target = videoProv.videos.cast<PlayOnVideo?>().firstWhere(
+                          (v) => v?.filePath == item.lastVideoPath,
+                          orElse: () => null,
+                        );
+                  }
+                  target ??= videoProv.videos.cast<PlayOnVideo?>().firstWhere(
+                        (v) => v?.folderName == item.folderName,
+                        orElse: () => null,
+                      );
+
+                  if (target != null) {
+                    VideoPlayerScreen.open(context, target);
+                  } else if (item.lastVideoPath != null && File(item.lastVideoPath!).existsSync()) {
+                    final fallbackVideo = PlayOnVideo(
+                      id: item.lastVideoPath.hashCode.toString(),
+                      title: item.playlistTitle,
+                      author: item.folderName,
+                      filePath: item.lastVideoPath!,
+                      thumbnailPath: item.lastThumbnailPath,
+                      duration: 0,
+                      fileSize: File(item.lastVideoPath!).lengthSync(),
+                      dateAdded: item.date,
+                      folderName: item.folderName,
+                      folderPath: File(item.lastVideoPath!).parent.path,
+                    );
+                    VideoPlayerScreen.open(context, fallbackVideo);
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('No se encontró el archivo de video.')),
+                    );
+                  }
+                } else {
+                  final musicProv = context.read<MusicProvider>();
+                  final songs = musicProv.allSongs.where((s) => s.folderName == item.folderName).toList();
+                  if (songs.isNotEmpty) {
+                    musicProv.playCustomQueue(songs, 0);
+                    NowPlayingScreen.open(context);
+                  }
+                }
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.close_rounded, color: PlayOnTheme.textTertiary, size: 18),
+              tooltip: 'Quitar del historial',
+              onPressed: () => provider.removeRecentDownload(item.folderName, isVideo: isVideo),
+            ),
+          ],
         ),
       ),
     );
@@ -732,7 +1142,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
     );
   }
 
-  Widget _buildInfoCard() {
+  Widget _buildInfoCard(bool isVideo) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -740,27 +1150,35 @@ class _DownloadScreenState extends State<DownloadScreen> {
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: PlayOnTheme.purplePrimary.withValues(alpha: 0.25)),
       ),
-      child: const Row(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.auto_awesome_rounded, color: PlayOnTheme.purpleGlow, size: 18),
-          SizedBox(width: 12),
+          Icon(
+            isVideo ? Icons.movie_filter_rounded : Icons.auto_awesome_rounded,
+            color: PlayOnTheme.purpleGlow,
+            size: 19,
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Descarga con metadatos y carátulas',
-                  style: TextStyle(
+                  isVideo
+                      ? 'Descarga de video con título, autor y miniatura'
+                      : 'Descarga con metadatos y carátulas',
+                  style: const TextStyle(
                     color: PlayOnTheme.textPrimary,
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                SizedBox(height: 3),
+                const SizedBox(height: 3),
                 Text(
-                  'El motor extrae automáticamente artista, título y carátula en alta definición para tu biblioteca.',
-                  style: TextStyle(color: PlayOnTheme.textSecondary, fontSize: 11.5),
+                  isVideo
+                      ? 'Guarda videos MP4 con título, autor y miniatura en alta resolución. Podrás reproducirlos directamente con el reproductor integrado.'
+                      : 'El motor extrae automáticamente artista, título y carátula en alta definición para tu biblioteca.',
+                  style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 11.5),
                 ),
               ],
             ),
@@ -771,9 +1189,11 @@ class _DownloadScreenState extends State<DownloadScreen> {
   }
 
   Widget _buildDownloadingState(DownloadProvider provider) {
+    final isVideo = provider.isVideoDownload;
+
     return Column(
       children: [
-        // Waveform icon
+        // Waveform/Video icon
         Center(
           child: Stack(
             alignment: Alignment.center,
@@ -806,7 +1226,11 @@ class _DownloadScreenState extends State<DownloadScreen> {
                     ),
                   ],
                 ),
-                child: const Icon(Icons.downloading_rounded, color: Colors.white, size: 32),
+                child: Icon(
+                  isVideo ? Icons.video_file_rounded : Icons.downloading_rounded,
+                  color: Colors.white,
+                  size: 32,
+                ),
               ),
             ],
           ),
@@ -814,7 +1238,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
 
         const SizedBox(height: 24),
 
-        // Playlist name
+        // Playlist / Folder name
         Text(
           provider.playlistName.isEmpty ? 'Analizando contenido...' : provider.playlistName,
           style: Theme.of(context).textTheme.titleLarge,
@@ -827,13 +1251,13 @@ class _DownloadScreenState extends State<DownloadScreen> {
 
         // Track count
         Text(
-          '${provider.downloaded} de ${provider.total} canciones',
+          '${provider.downloaded} de ${provider.total} ${isVideo ? "videos" : "canciones"}',
           style: const TextStyle(color: PlayOnTheme.purpleGlow, fontSize: 14, fontWeight: FontWeight.bold),
         ),
 
         const SizedBox(height: 20),
 
-        // Progress bar (Playlist)
+        // Progress bar
         ClipRRect(
           borderRadius: BorderRadius.circular(8),
           child: LinearProgressIndicator(
@@ -846,7 +1270,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
 
         const SizedBox(height: 14),
 
-        // Current track
+        // Current item
         AnimatedSwitcher(
           duration: const Duration(milliseconds: 300),
           child: Text(
@@ -909,6 +1333,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
   }
 
   Widget _buildDoneState(DownloadProvider provider) {
+    final isVideo = provider.isVideoDownload;
     final successful = provider.completedTracks.where((t) => t.success).length;
     final failed = provider.completedTracks.where((t) => !t.success).length;
 
@@ -943,23 +1368,34 @@ class _DownloadScreenState extends State<DownloadScreen> {
         const SizedBox(height: 20),
 
         Text(
-          '¡Descarga finalizada!',
+          isVideo ? '¡Descarga de video finalizada!' : '¡Descarga finalizada!',
           style: Theme.of(context).textTheme.headlineMedium,
         ),
 
         const SizedBox(height: 6),
 
         Text(
-          '$successful canciones descargadas${failed > 0 ? ' · $failed fallidas' : ''}',
+          '$successful ${isVideo ? "videos descargados" : "canciones descargadas"}${failed > 0 ? ' · $failed fallidos' : ''}',
           style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 13.5),
         ),
 
         const SizedBox(height: 6),
 
-        Text(
-          provider.playlistName,
-          style: const TextStyle(color: PlayOnTheme.purpleGlow, fontSize: 14, fontWeight: FontWeight.w600),
-          textAlign: TextAlign.center,
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              isVideo ? Icons.folder_special_rounded : Icons.folder_rounded,
+              size: 15,
+              color: PlayOnTheme.purpleGlow,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              'Guardado en: ${provider.playlistName}',
+              style: const TextStyle(color: PlayOnTheme.purpleGlow, fontSize: 14, fontWeight: FontWeight.w600),
+              textAlign: TextAlign.center,
+            ),
+          ],
         ),
 
         const SizedBox(height: 24),
@@ -976,17 +1412,57 @@ class _DownloadScreenState extends State<DownloadScreen> {
                 ),
                 child: ElevatedButton.icon(
                   onPressed: () {
-                    final musicProv = context.read<MusicProvider>();
-                    final songs = musicProv.allSongs.where((s) => s.folderName == provider.playlistName).toList();
-                    if (songs.isNotEmpty) {
-                      musicProv.playCustomQueue(songs, 0);
-                      NowPlayingScreen.open(context);
+                    if (isVideo) {
+                      final videoProv = context.read<VideoProvider>();
+                      PlayOnVideo? target;
+                      if (provider.lastDownloadedVideoPath != null) {
+                        target = videoProv.videos.cast<PlayOnVideo?>().firstWhere(
+                              (v) => v?.filePath == provider.lastDownloadedVideoPath,
+                              orElse: () => null,
+                            );
+                      }
+                      target ??= videoProv.videos.cast<PlayOnVideo?>().firstWhere(
+                            (v) => v?.folderName == provider.playlistName,
+                            orElse: () => null,
+                          );
+
+                      if (target != null) {
+                        VideoPlayerScreen.open(context, target);
+                      } else if (provider.lastDownloadedVideoPath != null) {
+                        final v = PlayOnVideo(
+                          id: provider.lastDownloadedVideoPath.hashCode.toString(),
+                          title: provider.completedTracks.isNotEmpty
+                              ? provider.completedTracks.first.title
+                              : 'Video descargado',
+                          author: provider.completedTracks.isNotEmpty
+                              ? provider.completedTracks.first.artist
+                              : 'PlayOn',
+                          filePath: provider.lastDownloadedVideoPath!,
+                          thumbnailPath: provider.lastDownloadedThumbnailPath,
+                          duration: 0,
+                          fileSize: File(provider.lastDownloadedVideoPath!).lengthSync(),
+                          dateAdded: DateTime.now(),
+                          folderName: provider.playlistName,
+                          folderPath: File(provider.lastDownloadedVideoPath!).parent.path,
+                        );
+                        VideoPlayerScreen.open(context, v);
+                      }
+                    } else {
+                      final musicProv = context.read<MusicProvider>();
+                      final songs = musicProv.allSongs.where((s) => s.folderName == provider.playlistName).toList();
+                      if (songs.isNotEmpty) {
+                        musicProv.playCustomQueue(songs, 0);
+                        NowPlayingScreen.open(context);
+                      }
                     }
                   },
-                  icon: const Icon(Icons.play_arrow_rounded, color: Colors.white),
-                  label: const Text(
-                    'Reproducir',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  icon: Icon(
+                    isVideo ? Icons.play_circle_filled_rounded : Icons.play_arrow_rounded,
+                    color: Colors.white,
+                  ),
+                  label: Text(
+                    isVideo ? 'Reproducir Video' : 'Reproducir',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.transparent,
@@ -1019,7 +1495,6 @@ class _DownloadScreenState extends State<DownloadScreen> {
 
         if (failed > 0) ...[
           const SizedBox(height: 12),
-          // Banner de solución rápida si fallaron canciones
           Container(
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.all(14),
@@ -1037,7 +1512,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
                     SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        '¿Canciones bloqueadas por YouTube?',
+                        '¿Descargas bloqueadas por YouTube?',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 13,
@@ -1049,7 +1524,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  'Si YouTube solicita verificación ("Sign in to confirm you are not a bot"), inicia sesión una sola vez para desbloquear todas las descargas.',
+                  'Si YouTube solicita verificación, inicia sesión una sola vez para desbloquear todas las descargas.',
                   style: TextStyle(color: PlayOnTheme.textSecondary, fontSize: 11.5),
                 ),
                 const SizedBox(height: 10),
@@ -1086,7 +1561,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
             child: OutlinedButton.icon(
               onPressed: () => provider.retryFailedTracks(),
               icon: const Icon(Icons.replay_rounded, color: PlayOnTheme.amberWarning, size: 18),
-              label: Text('Reintentar canciones fallidas ($failed)', style: const TextStyle(color: PlayOnTheme.amberWarning)),
+              label: Text('Reintentar fallidos ($failed)', style: const TextStyle(color: PlayOnTheme.amberWarning)),
               style: OutlinedButton.styleFrom(
                 side: const BorderSide(color: PlayOnTheme.amberWarning),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1110,12 +1585,13 @@ class _DownloadScreenState extends State<DownloadScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildLabel('DETALLE DE PISTAS'),
+        _buildLabel('DETALLE DE ELEMENTOS'),
         const SizedBox(height: 10),
         ...tracks.indexed.map(
           (entry) => _TrackRow(
             track: entry.$2,
             animate: entry.$1 >= animatedThreshold,
+            isVideo: provider.isVideoDownload,
           ),
         ),
       ],
@@ -1192,8 +1668,13 @@ class _DownloadScreenState extends State<DownloadScreen> {
 class _TrackRow extends StatelessWidget {
   final DownloadedTrack track;
   final bool animate;
+  final bool isVideo;
 
-  const _TrackRow({required this.track, this.animate = true});
+  const _TrackRow({
+    required this.track,
+    this.animate = true,
+    this.isVideo = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1207,16 +1688,25 @@ class _TrackRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(
-            track.success
-                ? Icons.check_circle_rounded
-                : Icons.error_outline_rounded,
-            color: track.success
-                ? const Color(0xFF66BB6A)
-                : const Color(0xFFEF9A9A),
-            size: 16,
-          ),
-          const SizedBox(width: 10),
+          // Miniatura
+          if (track.thumbnailUrl != null && track.thumbnailUrl!.isNotEmpty)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.network(
+                track.thumbnailUrl!,
+                width: 44,
+                height: 32,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const Icon(Icons.movie_rounded, size: 20, color: PlayOnTheme.textTertiary),
+              ),
+            )
+          else
+            Icon(
+              isVideo ? Icons.videocam_rounded : Icons.music_note_rounded,
+              color: PlayOnTheme.purpleGlow,
+              size: 20,
+            ),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1233,8 +1723,7 @@ class _TrackRow extends StatelessWidget {
                 ),
                 Text(
                   track.artist,
-                  style: const TextStyle(
-                      color: PlayOnTheme.textSecondary, fontSize: 11),
+                  style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 11),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1244,7 +1733,7 @@ class _TrackRow extends StatelessWidget {
                     child: Text(
                       (track.error != null && track.error!.trim().isNotEmpty)
                           ? track.error!.trim()
-                          : 'Error al descargar pista',
+                          : 'Error al descargar',
                       style: const TextStyle(color: Color(0xFFEF9A9A), fontSize: 10.5),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -1253,16 +1742,19 @@ class _TrackRow extends StatelessWidget {
               ],
             ),
           ),
+          const SizedBox(width: 8),
+          Icon(
+            track.success ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+            color: track.success ? const Color(0xFF66BB6A) : const Color(0xFFEF9A9A),
+            size: 18,
+          ),
         ],
       ),
     );
 
     if (!animate) return child;
 
-    return child
-        .animate()
-        .fadeIn(duration: 300.ms)
-        .slideX(begin: 0.05, end: 0);
+    return child.animate().fadeIn(duration: 300.ms).slideX(begin: 0.05, end: 0);
   }
 }
 
@@ -1346,7 +1838,7 @@ class _CookieSheetState extends State<_CookieSheet> {
                         ),
                       ),
                       Text(
-                        'Evita bloqueos y descarga tus playlists',
+                        'Evita bloqueos y descarga tus playlists y videos',
                         style: TextStyle(color: PlayOnTheme.textSecondary, fontSize: 12),
                       ),
                     ],
@@ -1356,7 +1848,7 @@ class _CookieSheetState extends State<_CookieSheet> {
             ),
             const SizedBox(height: 20),
 
-            // Opción 1 (Recomendada): Iniciar sesión en navegador
+            // Iniciar sesión en navegador
             SizedBox(
               width: double.infinity,
               height: 52,
@@ -1398,7 +1890,7 @@ class _CookieSheetState extends State<_CookieSheet> {
 
             const SizedBox(height: 14),
 
-            // Botón para borrar sesión si ya existe
+            // Botón para borrar sesión
             Row(
               children: [
                 Expanded(
@@ -1428,7 +1920,7 @@ class _CookieSheetState extends State<_CookieSheet> {
               ],
             ),
 
-            // Opción 2: Pegar cookies manuales (colapsable)
+            // Cookies manuales
             if (_showAdvanced) ...[
               const SizedBox(height: 16),
               const Text(
