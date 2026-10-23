@@ -98,8 +98,10 @@ class PlaylistDb {
 
   Future<int> deletePlaylist(int id) async {
     final db = await database;
-    await db.delete('playlist_songs', where: 'playlist_id = ?', whereArgs: [id]);
-    return await db.delete('playlists', where: 'id = ?', whereArgs: [id]);
+    return await db.transaction((txn) async {
+      await txn.delete('playlist_songs', where: 'playlist_id = ?', whereArgs: [id]);
+      return await txn.delete('playlists', where: 'id = ?', whereArgs: [id]);
+    });
   }
 
   Future<int> renamePlaylist(int id, String newName) async {

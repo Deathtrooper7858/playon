@@ -11,6 +11,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song_model.dart';
 import '../services/file_management_service.dart';
+import '../services/native_tags_service.dart';
 
 enum PlayerRepeatMode { none, one, all }
 enum SongSortOption { title, artist, album, duration, date }
@@ -375,6 +376,13 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
 
     try {
+      if (Platform.isAndroid) {
+        try {
+          if (!await Permission.manageExternalStorage.isGranted) {
+            await Permission.manageExternalStorage.request();
+          }
+        } catch (_) {}
+      }
       final status = await Permission.audio.request();
       if (!status.isGranted) {
         await Permission.storage.request();
@@ -452,6 +460,82 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     _isLoading = false;
+    notifyListeners();
+  }
+
+  /// Actualiza metadatos ID3 de una canción (título, artista, álbum) tanto en memoria como en archivo físico y MediaStore
+  Future<bool> updateSongMetadata({
+    required PlayOnSong song,
+    required String title,
+    required String artist,
+    required String album,
+  }) async {
+    // 1. Actualización inmediata en memoria para que la interfaz responda con latencia cero
+    updateSongInMemory(song.id, title: title, artist: artist, album: album);
+
+    // 2. Asegurar permisos en Android
+    if (Platform.isAndroid) {
+      try {
+        if (!await Permission.manageExternalStorage.isGranted) {
+          await Permission.manageExternalStorage.request();
+        }
+      } catch (_) {}
+    }
+
+    // 3. Escribir metadatos nativos ID3 / MP4 y actualizar ContentResolver MediaStore
+    try {
+      final success = await NativeTagsService.setAudioTags(
+        path: song.filePath,
+        title: title,
+        artist: artist,
+        album: album,
+      );
+
+      // 4. Re-sincronizar con el almacenamiento
+      await loadSongs();
+      return success;
+    } catch (e) {
+      debugPrint('Error en updateSongMetadata: $e');
+      rethrow;
+    }
+  }
+
+  /// Actualiza una canción en memoria de inmediato en todas las listas activas
+  void updateSongInMemory(
+    int id, {
+    String? title,
+    String? artist,
+    String? album,
+    String? filePath,
+    String? folderName,
+    String? folderPath,
+  }) {
+    for (int i = 0; i < _allSongs.length; i++) {
+      if (_allSongs[i].id == id) {
+        _allSongs[i] = _allSongs[i].copyWith(
+          title: title ?? _allSongs[i].title,
+          artist: artist ?? _allSongs[i].artist,
+          album: album ?? _allSongs[i].album,
+          filePath: filePath ?? _allSongs[i].filePath,
+          folderName: folderName ?? _allSongs[i].folderName,
+          folderPath: folderPath ?? _allSongs[i].folderPath,
+        );
+        break;
+      }
+    }
+    for (int i = 0; i < _currentQueue.length; i++) {
+      if (_currentQueue[i].id == id) {
+        _currentQueue[i] = _currentQueue[i].copyWith(
+          title: title ?? _currentQueue[i].title,
+          artist: artist ?? _currentQueue[i].artist,
+          album: album ?? _currentQueue[i].album,
+          filePath: filePath ?? _currentQueue[i].filePath,
+          folderName: folderName ?? _currentQueue[i].folderName,
+          folderPath: folderPath ?? _currentQueue[i].folderPath,
+        );
+        break;
+      }
+    }
     notifyListeners();
   }
 

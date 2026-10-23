@@ -8,9 +8,11 @@ import 'providers/music_provider.dart';
 import 'providers/playlist_provider.dart';
 import 'providers/download_provider.dart';
 import 'providers/video_provider.dart';
+import 'providers/ai_assistant_provider.dart';
 import 'models/song_model.dart';
 import 'screens/library_screen.dart';
 import 'screens/download_screen.dart';
+import 'screens/ai_assistant_screen.dart';
 import 'screens/now_playing_screen.dart';
 import 'theme.dart';
 import 'widgets/mini_player.dart';
@@ -80,6 +82,22 @@ class PlayOnApp extends StatelessWidget {
           update: (_, music, video, prev) =>
               prev ?? DownloadProvider(music, videoProvider: video),
         ),
+        ChangeNotifierProxyProvider4<MusicProvider, VideoProvider, PlaylistProvider, DownloadProvider, AiAssistantProvider>(
+          create: (ctx) => AiAssistantProvider(
+            musicProvider: ctx.read<MusicProvider>(),
+            videoProvider: ctx.read<VideoProvider>(),
+            playlistProvider: ctx.read<PlaylistProvider>(),
+            downloadProvider: ctx.read<DownloadProvider>(),
+          ),
+          update: (_, music, video, playlist, download, prev) =>
+              prev ??
+              AiAssistantProvider(
+                musicProvider: music,
+                videoProvider: video,
+                playlistProvider: playlist,
+                downloadProvider: download,
+              ),
+        ),
       ],
       child: MaterialApp(
         title: 'PlayOn',
@@ -110,6 +128,7 @@ class _RootScaffoldState extends State<_RootScaffold> {
         children: [
           _buildOffstageScreen(0, const LibraryScreen()),
           _buildOffstageScreen(1, const DownloadScreen()),
+          _buildOffstageScreen(2, const AiAssistantScreen()),
         ],
       ),
       bottomNavigationBar: Column(
@@ -178,6 +197,11 @@ class _RootScaffoldState extends State<_RootScaffold> {
                   icon: Icon(Icons.download_outlined),
                   activeIcon: Icon(Icons.download_rounded),
                   label: 'Descargas',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.auto_awesome_outlined),
+                  activeIcon: Icon(Icons.auto_awesome_rounded),
+                  label: 'PlayOn IA',
                 ),
               ],
             ),

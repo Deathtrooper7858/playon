@@ -981,16 +981,21 @@ class DownloadProvider extends ChangeNotifier {
       final stream = yt.videos.streamsClient.get(streamInfo);
       final file = File(filePath);
       final sink = file.openWrite();
-      await stream.pipe(sink);
-      await sink.flush();
-      await sink.close();
+      try {
+        await stream.pipe(sink);
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
 
       // Descargar miniatura compañera en alta resolución si existe
       if (track.thumbnailUrl != null && track.thumbnailUrl!.isNotEmpty) {
+        HttpClient? client;
         try {
           final thumbFile = File(filePath.replaceFirst(RegExp(r'\.mp4$', caseSensitive: false), '.thumb.jpg'));
-          final client = HttpClient();
+          client = HttpClient();
           String thumbUrl = track.thumbnailUrl!;
+          bool downloaded = false;
           if (thumbUrl.contains('i.ytimg.com') || thumbUrl.contains('googleusercontent.com')) {
             final hq = thumbUrl.replaceAll(RegExp(r'/(?:hqdefault|mqdefault|sddefault|default)\.jpg'), '/maxresdefault.jpg');
             if (hq != thumbUrl) {
@@ -999,26 +1004,37 @@ class DownloadProvider extends ChangeNotifier {
                 final testResp = await testReq.close();
                 if (testResp.statusCode == 200) {
                   final thumbSink = thumbFile.openWrite();
-                  await testResp.pipe(thumbSink);
-                  await thumbSink.flush();
-                  await thumbSink.close();
-                  client.close();
-                  return;
+                  try {
+                    await testResp.pipe(thumbSink);
+                    await thumbSink.flush();
+                  } finally {
+                    await thumbSink.close();
+                  }
+                  downloaded = true;
                 }
               } catch (_) {}
             }
           }
 
-          final req = await client.getUrl(Uri.parse(thumbUrl));
-          final resp = await req.close();
-          if (resp.statusCode == 200) {
-            final thumbSink = thumbFile.openWrite();
-            await resp.pipe(thumbSink);
-            await thumbSink.flush();
-            await thumbSink.close();
+          if (!downloaded) {
+            final req = await client.getUrl(Uri.parse(thumbUrl));
+            final resp = await req.close();
+            if (resp.statusCode == 200) {
+              final thumbSink = thumbFile.openWrite();
+              try {
+                await resp.pipe(thumbSink);
+                await thumbSink.flush();
+              } finally {
+                await thumbSink.close();
+              }
+            }
           }
-          client.close();
-        } catch (_) {}
+        } catch (_) {
+        } finally {
+          try {
+            client?.close(force: true);
+          } catch (_) {}
+        }
       }
     } finally {
       yt.close();
@@ -1044,9 +1060,12 @@ class DownloadProvider extends ChangeNotifier {
       final stream = yt.videos.streamsClient.get(streamInfo);
       final file = File(filePath);
       final sink = file.openWrite();
-      await stream.pipe(sink);
-      await sink.flush();
-      await sink.close();
+      try {
+        await stream.pipe(sink);
+        await sink.flush();
+      } finally {
+        await sink.close();
+      }
     } finally {
       yt.close();
     }

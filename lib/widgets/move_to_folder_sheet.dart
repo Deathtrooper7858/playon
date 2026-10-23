@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
@@ -60,13 +61,22 @@ class _MoveToFolderSheetState extends State<MoveToFolderSheet> {
     super.dispose();
   }
 
-  /// Extrae la lista de carpetas disponibles con sus rutas absolutas
-  Map<String, String> _getAvailableFolders(List<PlayOnSong> allSongs) {
+  /// Extrae la lista de carpetas disponibles con sus rutas absolutas (incluyendo carpetas recién creadas)
+  Map<String, String> _getAvailableFolders(MusicProvider provider) {
     final Map<String, String> folderMap = {};
-    for (final song in allSongs) {
+    for (final song in provider.allSongs) {
       if (song.folderName != null && song.folderPath != null) {
         folderMap[song.folderName!] = song.folderPath!;
       }
+    }
+    // Incluir también todas las carpetas registradas en provider (incluso vacías)
+    String base = '/storage/emulated/0/Music';
+    if (provider.allSongs.isNotEmpty && provider.allSongs.first.folderPath != null) {
+      final pDir = Directory(provider.allSongs.first.folderPath!).parent.path;
+      if (pDir.isNotEmpty) base = pDir;
+    }
+    for (final folder in provider.folders) {
+      folderMap.putIfAbsent(folder, () => '$base/$folder');
     }
     return folderMap;
   }
@@ -133,7 +143,7 @@ class _MoveToFolderSheetState extends State<MoveToFolderSheet> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<MusicProvider>();
-    final folderMap = _getAvailableFolders(provider.allSongs);
+    final folderMap = _getAvailableFolders(provider);
     final count = widget.songs.length;
 
     if (count == 0) {

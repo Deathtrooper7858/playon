@@ -611,197 +611,32 @@ class _DownloadScreenState extends State<DownloadScreen> {
 
           const SizedBox(height: 18),
 
-          // Ubicación y Carpeta de destino
+          // Carpeta de destino optimizada y estilizada
           Row(
             children: [
               _buildLabel(isVideo ? 'CARPETA Y UBICACIÓN DEL VIDEO' : 'CARPETA DE DESTINO'),
               const Spacer(),
-              Text(
-                _folderSelectionMode == 'auto'
-                    ? (isVideo ? '📁 Por defecto: My videos' : '⚡ Automática (Nueva)')
-                    : _folderSelectionMode == 'existing'
-                        ? '📁 Existente'
-                        : '✏️ Nombre personalizado',
-                style: const TextStyle(color: PlayOnTheme.purpleGlow, fontSize: 11, fontWeight: FontWeight.bold),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: PlayOnTheme.purplePrimary.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: PlayOnTheme.purplePrimary.withValues(alpha: 0.4)),
+                ),
+                child: Text(
+                  _folderSelectionMode == 'auto'
+                      ? (isVideo ? '📁 My videos' : '⚡ Automática')
+                      : _folderSelectionMode == 'existing'
+                          ? '📂 Existente'
+                          : '✏️ Personalizada',
+                  style: const TextStyle(color: PlayOnTheme.purpleGlow, fontSize: 11, fontWeight: FontWeight.bold),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 8),
 
-          // Chips de modo de carpeta
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            child: Row(
-              children: [
-                ChoiceChip(
-                  label: Text(isVideo ? '📁 Por defecto (My videos)' : '⚡ Crear nueva (Automático)'),
-                  selected: _folderSelectionMode == 'auto',
-                  selectedColor: PlayOnTheme.purplePrimary.withValues(alpha: 0.3),
-                  backgroundColor: PlayOnTheme.bgSurface,
-                  labelStyle: TextStyle(
-                    color: _folderSelectionMode == 'auto' ? PlayOnTheme.purpleGlow : PlayOnTheme.textSecondary,
-                    fontSize: 12,
-                    fontWeight: _folderSelectionMode == 'auto' ? FontWeight.bold : FontWeight.normal,
-                  ),
-                  onSelected: (selected) {
-                    if (selected) {
-                      setState(() {
-                        _folderSelectionMode = 'auto';
-                        _selectedExistingFolder = null;
-                        _nameController.clear();
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(width: 8),
-                ChoiceChip(
-                  label: const Text('✏️ Como ponerle a la carpeta'),
-                  selected: _folderSelectionMode == 'custom',
-                  selectedColor: PlayOnTheme.purplePrimary.withValues(alpha: 0.3),
-                  backgroundColor: PlayOnTheme.bgSurface,
-                  labelStyle: TextStyle(
-                    color: _folderSelectionMode == 'custom' ? PlayOnTheme.purpleGlow : PlayOnTheme.textSecondary,
-                    fontSize: 12,
-                    fontWeight: _folderSelectionMode == 'custom' ? FontWeight.bold : FontWeight.normal,
-                  ),
-                  onSelected: (selected) {
-                    if (selected) {
-                      setState(() {
-                        _folderSelectionMode = 'custom';
-                        _selectedExistingFolder = null;
-                      });
-                    }
-                  },
-                ),
-                if (existingFolders.isNotEmpty) ...[
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('📂 Elegir existente'),
-                    selected: _folderSelectionMode == 'existing',
-                    selectedColor: PlayOnTheme.purplePrimary.withValues(alpha: 0.3),
-                    backgroundColor: PlayOnTheme.bgSurface,
-                    labelStyle: TextStyle(
-                      color: _folderSelectionMode == 'existing' ? PlayOnTheme.purpleGlow : PlayOnTheme.textSecondary,
-                      fontSize: 12,
-                      fontWeight: _folderSelectionMode == 'existing' ? FontWeight.bold : FontWeight.normal,
-                    ),
-                    onSelected: (selected) {
-                      if (selected) {
-                        setState(() {
-                          _folderSelectionMode = 'existing';
-                          _selectedExistingFolder ??= existingFolders.first;
-                        });
-                      }
-                    },
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-
-          // Selector de Carpeta según modo
-          if (_folderSelectionMode == 'existing' && existingFolders.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-              decoration: BoxDecoration(
-                color: PlayOnTheme.bgSurface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: PlayOnTheme.glassBorder),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  value: _selectedExistingFolder ?? existingFolders.first,
-                  isExpanded: true,
-                  dropdownColor: PlayOnTheme.bgCard,
-                  icon: const Icon(Icons.keyboard_arrow_down_rounded, color: PlayOnTheme.purpleGlow),
-                  items: existingFolders.map((f) {
-                    final count = isVideo
-                        ? (videoProv.folderCounts[f] ?? 0)
-                        : musicProv.allSongs.where((s) => s.folderName == f).length;
-                    return DropdownMenuItem<String>(
-                      value: f,
-                      child: Row(
-                        children: [
-                          Icon(
-                            isVideo ? Icons.video_library_rounded : Icons.folder_rounded,
-                            color: PlayOnTheme.pinkAccent,
-                            size: 18,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              f,
-                              style: const TextStyle(color: PlayOnTheme.textPrimary, fontSize: 13.5),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          Text(
-                            isVideo ? '$count videos' : '$count canciones',
-                            style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 11),
-                          ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: (val) {
-                    if (val != null) {
-                      setState(() => _selectedExistingFolder = val);
-                    }
-                  },
-                ),
-              ),
-            )
-          else if (_folderSelectionMode == 'custom')
-            _buildTextField(
-              controller: _nameController,
-              hint: isVideo
-                  ? 'Escribe el nombre de la carpeta (o vacío = My videos)'
-                  : 'Ej: Mis Éxitos 2026',
-              icon: Icons.create_new_folder_rounded,
-              validator: null,
-            )
-          else
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: PlayOnTheme.bgSurface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: PlayOnTheme.glassBorder),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    isVideo ? Icons.folder_special_rounded : Icons.auto_awesome_rounded,
-                    color: PlayOnTheme.purpleGlow,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          isVideo ? 'Carpeta por defecto: "My videos"' : 'Creación automática según playlist',
-                          style: const TextStyle(
-                            color: PlayOnTheme.textPrimary,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
-                        ),
-                        Text(
-                          isVideo
-                              ? 'Los videos se guardarán organizados en tu carpeta "My videos".'
-                              : 'Se creará una carpeta con el título del enlace o "Descargas".',
-                          style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 11),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          _buildDestinationFolderCard(isVideo, existingFolders, musicProv, videoProv),
 
           // Selector de Ubicación Base para Videos ("donde guardar")
           if (isVideo) ...[
@@ -1663,6 +1498,340 @@ class _DownloadScreenState extends State<DownloadScreen> {
       ),
     );
   }
+
+  Widget _buildDestinationFolderCard(
+    bool isVideo,
+    List<String> existingFolders,
+    MusicProvider musicProv,
+    VideoProvider videoProv,
+  ) {
+    String title;
+    String subtitle;
+    IconData iconData;
+
+    if (_folderSelectionMode == 'existing' && _selectedExistingFolder != null) {
+      final f = _selectedExistingFolder!;
+      final count = isVideo
+          ? (videoProv.folderCounts[f] ?? 0)
+          : musicProv.allSongs.where((s) => s.folderName == f).length;
+      title = f;
+      subtitle = isVideo ? '$count videos en esta carpeta' : '$count canciones en esta carpeta';
+      iconData = isVideo ? Icons.video_library_rounded : Icons.folder_rounded;
+    } else if (_folderSelectionMode == 'custom' && _nameController.text.trim().isNotEmpty) {
+      title = _nameController.text.trim();
+      subtitle = 'Nueva carpeta personalizada';
+      iconData = Icons.create_new_folder_rounded;
+    } else {
+      title = isVideo ? 'My videos (Por defecto)' : 'Organización Automática';
+      subtitle = isVideo
+          ? 'Los videos se guardarán en Movies/My videos'
+          : 'Se crea una carpeta con el nombre de la canción o playlist';
+      iconData = Icons.auto_awesome_rounded;
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: PlayOnTheme.bgCard,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: PlayOnTheme.glassBorder),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => _openFolderPickerSheet(context, isVideo, existingFolders, musicProv, videoProv),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    gradient: PlayOnTheme.primaryGradient,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: PlayOnTheme.glowShadow(blur: 8),
+                  ),
+                  child: Icon(iconData, color: Colors.white, size: 22),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          color: PlayOnTheme.textPrimary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 11.5),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: PlayOnTheme.bgSurface,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: PlayOnTheme.glassBorder),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Cambiar',
+                        style: TextStyle(color: PlayOnTheme.purpleGlow, fontSize: 11.5, fontWeight: FontWeight.bold),
+                      ),
+                      SizedBox(width: 4),
+                      Icon(Icons.tune_rounded, size: 14, color: PlayOnTheme.purpleGlow),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openFolderPickerSheet(
+    BuildContext context,
+    bool isVideo,
+    List<String> existingFolders,
+    MusicProvider musicProv,
+    VideoProvider videoProv,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          return ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            child: Container(
+              color: PlayOnTheme.bgDeep,
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: PlayOnTheme.divider,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const Text(
+                    'Elegir carpeta de destino',
+                    style: TextStyle(
+                      color: PlayOnTheme.textPrimary,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    '¿Dónde deseas que se almacenen las descargas?',
+                    style: TextStyle(color: PlayOnTheme.textSecondary, fontSize: 12.5),
+                  ),
+                  const SizedBox(height: 18),
+
+                  // Opción 1: Automático
+                  _buildFolderOptionTile(
+                    title: isVideo ? 'Por defecto ("My videos")' : 'Automático según Título/Playlist',
+                    subtitle: isVideo
+                        ? 'Guarda dentro de Movies/My videos'
+                        : 'Crea una carpeta con el nombre de la playlist o álbum',
+                    icon: Icons.auto_awesome_rounded,
+                    isSelected: _folderSelectionMode == 'auto',
+                    onTap: () {
+                      setState(() {
+                        _folderSelectionMode = 'auto';
+                        _selectedExistingFolder = null;
+                        _nameController.clear();
+                      });
+                      Navigator.pop(ctx);
+                    },
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  // Opción 2: Nueva carpeta personalizada
+                  _buildFolderOptionTile(
+                    title: 'Crear nueva carpeta con nombre...',
+                    subtitle: _nameController.text.isNotEmpty
+                        ? 'Nombre actual: ${_nameController.text}'
+                        : 'Escribe un nombre personalizado',
+                    icon: Icons.create_new_folder_rounded,
+                    isSelected: _folderSelectionMode == 'custom',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showCustomFolderNameDialog(context);
+                    },
+                  ),
+
+                  if (existingFolders.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    const Divider(color: PlayOnTheme.divider),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Carpetas existentes:',
+                      style: TextStyle(color: PlayOnTheme.textTertiary, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 220),
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: existingFolders.length,
+                        itemBuilder: (context, idx) {
+                          final f = existingFolders[idx];
+                          final count = isVideo
+                              ? (videoProv.folderCounts[f] ?? 0)
+                              : musicProv.allSongs.where((s) => s.folderName == f).length;
+                          final selected = _folderSelectionMode == 'existing' && _selectedExistingFolder == f;
+
+                          return Container(
+                            margin: const EdgeInsets.symmetric(vertical: 3),
+                            decoration: BoxDecoration(
+                              color: selected ? PlayOnTheme.purplePrimary.withValues(alpha: 0.15) : PlayOnTheme.bgCard,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: selected ? PlayOnTheme.purpleGlow : PlayOnTheme.glassBorder,
+                              ),
+                            ),
+                            child: ListTile(
+                              dense: true,
+                              leading: Icon(
+                                isVideo ? Icons.video_library_rounded : Icons.folder_rounded,
+                                color: selected ? PlayOnTheme.cyanAccent : PlayOnTheme.purpleGlow,
+                              ),
+                              title: Text(
+                                f,
+                                style: TextStyle(
+                                  color: selected ? Colors.white : PlayOnTheme.textPrimary,
+                                  fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                                ),
+                              ),
+                              subtitle: Text(
+                                isVideo ? '$count videos' : '$count canciones',
+                                style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 11),
+                              ),
+                              trailing: selected
+                                  ? const Icon(Icons.check_circle_rounded, color: PlayOnTheme.purpleGlow, size: 20)
+                                  : null,
+                              onTap: () {
+                                setState(() {
+                                  _folderSelectionMode = 'existing';
+                                  _selectedExistingFolder = f;
+                                });
+                                Navigator.pop(ctx);
+                              },
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildFolderOptionTile({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isSelected ? PlayOnTheme.purplePrimary.withValues(alpha: 0.15) : PlayOnTheme.bgCard,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isSelected ? PlayOnTheme.purpleGlow : PlayOnTheme.glassBorder,
+          width: isSelected ? 1.5 : 1.0,
+        ),
+      ),
+      child: ListTile(
+        leading: Icon(icon, color: isSelected ? PlayOnTheme.purpleGlow : PlayOnTheme.textSecondary),
+        title: Text(title, style: TextStyle(color: PlayOnTheme.textPrimary, fontWeight: isSelected ? FontWeight.bold : FontWeight.w600, fontSize: 13.5)),
+        subtitle: Text(subtitle, style: const TextStyle(color: PlayOnTheme.textSecondary, fontSize: 11.5)),
+        trailing: isSelected ? const Icon(Icons.check_circle_rounded, color: PlayOnTheme.purpleGlow, size: 20) : null,
+        onTap: onTap,
+      ),
+    );
+  }
+
+  void _showCustomFolderNameDialog(BuildContext context) {
+    final controller = TextEditingController(text: _nameController.text);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: PlayOnTheme.bgCard,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Nombre de carpeta', style: TextStyle(color: PlayOnTheme.textPrimary, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: const TextStyle(color: PlayOnTheme.textPrimary),
+          decoration: const InputDecoration(
+            hintText: 'Ej: Rock Clásico, Trap 2026',
+            hintStyle: TextStyle(color: PlayOnTheme.textTertiary),
+            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: PlayOnTheme.purpleGlow)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar', style: TextStyle(color: PlayOnTheme.textSecondary)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: PlayOnTheme.purplePrimary,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () {
+              final text = controller.text.trim();
+              if (text.isNotEmpty) {
+                setState(() {
+                  _nameController.text = text;
+                  _folderSelectionMode = 'custom';
+                  _selectedExistingFolder = null;
+                });
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text('Guardar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
 }
 
 class _TrackRow extends StatelessWidget {

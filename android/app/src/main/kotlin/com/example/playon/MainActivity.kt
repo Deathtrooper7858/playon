@@ -417,6 +417,21 @@ class MainActivity : AudioServiceActivity() {
                                 val res = module.callAttr("set_audio_tags", path, title, artist, album).toString()
                                 
                                 if (res == "SUCCESS") {
+                                    try {
+                                        val values = android.content.ContentValues().apply {
+                                            if (title.isNotEmpty()) put(android.provider.MediaStore.Audio.Media.TITLE, title)
+                                            if (artist.isNotEmpty()) put(android.provider.MediaStore.Audio.Media.ARTIST, artist)
+                                            if (album.isNotEmpty()) put(android.provider.MediaStore.Audio.Media.ALBUM, album)
+                                            put(android.provider.MediaStore.Audio.Media.DATE_MODIFIED, System.currentTimeMillis() / 1000)
+                                        }
+                                        applicationContext.contentResolver.update(
+                                            android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                                            values,
+                                            "${android.provider.MediaStore.Audio.Media.DATA} = ?",
+                                            arrayOf(path)
+                                        )
+                                    } catch (_: Exception) {}
+
                                     MediaScannerConnection.scanFile(
                                         applicationContext,
                                         arrayOf(path),
@@ -453,7 +468,7 @@ class MainActivity : AudioServiceActivity() {
                         val notification = NotificationCompat.Builder(this, DOWNLOAD_NOTIF_CHANNEL_ID)
                             .setContentTitle(title)
                             .setContentText(text)
-                            .setSmallIcon(R.mipmap.launcher_icon)
+                            .setSmallIcon(R.drawable.ic_notification)
                             .setProgress(max, progress, false)
                             .setOngoing(true)
                             .setOnlyAlertOnce(true)

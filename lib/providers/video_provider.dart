@@ -345,6 +345,81 @@ class VideoProvider extends ChangeNotifier {
     }
   }
 
+  /// Renombra el archivo y metadatos de un video
+  Future<bool> renameVideo(PlayOnVideo video, String newTitle) async {
+    try {
+      final sanitized = newTitle.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_').trim();
+      if (sanitized.isEmpty) return false;
+
+      final srcFile = File(video.filePath);
+      if (!srcFile.existsSync()) return false;
+
+      final ext = p.extension(video.filePath);
+      final newFileName = '$sanitized$ext';
+      final dir = p.dirname(video.filePath);
+      final newFilePath = p.join(dir, newFileName);
+
+      if (newFilePath != video.filePath) {
+        if (File(newFilePath).existsSync()) {
+          throw Exception('Ya existe un video con el nombre "$newFileName"');
+        }
+        srcFile.renameSync(newFilePath);
+      }
+
+      // Renombrar miniatura si existe
+      String? newThumbPath = video.thumbnailPath;
+      if (video.thumbnailPath != null && File(video.thumbnailPath!).existsSync()) {
+        final thumbExt = p.extension(video.thumbnailPath!);
+        final newThumbName = '${sanitized}_thumb$thumbExt';
+        final thumbDir = p.dirname(video.thumbnailPath!);
+        final candidateThumbPath = p.join(thumbDir, newThumbName);
+        try {
+          File(video.thumbnailPath!).renameSync(candidateThumbPath);
+          newThumbPath = candidateThumbPath;
+        } catch (_) {}
+      }
+
+      // Renombrar subtítulos asociados
+      final srcDir = Directory(video.folderPath);
+      final baseSrcName = p.basenameWithoutExtension(video.filePath);
+      if (srcDir.existsSync()) {
+        for (final ent in srcDir.listSync()) {
+          if (ent is File) {
+            final entName = p.basename(ent.path);
+            if (entName.startsWith(baseSrcName) && (entName.endsWith('.srt') || entName.endsWith('.vtt'))) {
+              final subExt = p.extension(entName);
+              final newSubPath = p.join(video.folderPath, '$sanitized$subExt');
+              try {
+                ent.renameSync(newSubPath);
+              } catch (_) {}
+            }
+          }
+        }
+      }
+
+      final idx = _videos.indexWhere((v) => v.filePath == video.filePath);
+      final updatedVideo = video.copyWith(
+        title: sanitized,
+        filePath: newFilePath,
+        thumbnailPath: newThumbPath,
+      );
+
+      if (idx != -1) {
+        _videos[idx] = updatedVideo;
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      final validMeta = _videos.map((v) => jsonEncode(v.toMap())).toList();
+      await prefs.setStringList('playon_video_metadata_list', validMeta);
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('Error renombrando video: $e');
+      rethrow;
+    }
+  }
+
   /// Obtiene los directorios base para escanear videos
   Future<List<Directory>> _getVideoScanDirectories() async {
     final List<Directory> dirs = [];

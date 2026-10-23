@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:playon/models/song_model.dart';
+import 'package:playon/models/video_model.dart';
 import 'package:playon/services/search_helper.dart';
 
 void main() {
@@ -53,6 +54,28 @@ void main() {
       expect(SearchHelper.matchesText('Canciones Clásicas', 'clasicas'), isTrue);
       expect(SearchHelper.matchesText('Rock en Español', 'espanol'), isTrue);
       expect(SearchHelper.matchesText('Jazz Night', 'metal'), isFalse);
+    });
+
+    test('matchesVideo test with accent-tolerance and multi-tokens', () {
+      final video = PlayOnVideo(
+        id: 'vid1',
+        title: 'Videoclip Oficial de Música Latina',
+        author: 'Sebastián Yatra',
+        filePath: '/storage/movies/video.mp4',
+        duration: 180000,
+        fileSize: 45000000,
+        dateAdded: DateTime.now(),
+        folderName: 'Conciertos en Vivo',
+        folderPath: '/storage/movies',
+      );
+
+      expect(SearchHelper.matchesVideo(video, 'musica'), isTrue);
+      expect(SearchHelper.matchesVideo(video, 'MÚSICA'), isTrue);
+      expect(SearchHelper.matchesVideo(video, 'sebastian'), isTrue);
+      expect(SearchHelper.matchesVideo(video, 'yatra latina'), isTrue);
+      expect(SearchHelper.matchesVideo(video, 'conciertos'), isTrue);
+      expect(SearchHelper.matchesVideo(video, 'rock pesado'), isFalse);
+      expect(SearchHelper.matchesVideo(video, ''), isTrue);
     });
   });
 }

@@ -3,7 +3,6 @@ import 'package:on_audio_query/on_audio_query.dart';
 import 'package:provider/provider.dart';
 import '../models/song_model.dart';
 import '../providers/music_provider.dart';
-import '../services/native_tags_service.dart';
 import '../theme.dart';
 
 class EditTagsDialog extends StatefulWidget {
@@ -54,8 +53,9 @@ class _EditTagsDialogState extends State<EditTagsDialog> {
     setState(() => _isSaving = true);
 
     try {
-      await NativeTagsService.setAudioTags(
-        path: widget.song.filePath,
+      final musicProv = context.read<MusicProvider>();
+      await musicProv.updateSongMetadata(
+        song: widget.song,
         title: title,
         artist: artist,
         album: album,
@@ -63,26 +63,21 @@ class _EditTagsDialogState extends State<EditTagsDialog> {
 
       if (!mounted) return;
 
-      // Refrescar biblioteca
-      await context.read<MusicProvider>().loadSongs();
-
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
-                SizedBox(width: 10),
-                Text('Metadatos actualizados con éxito'),
-              ],
-            ),
-            backgroundColor: PlayOnTheme.emeraldActive,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+              SizedBox(width: 10),
+              Text('Metadatos actualizados con éxito'),
+            ],
           ),
-        );
-      }
+          backgroundColor: PlayOnTheme.emeraldActive,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
     } catch (e) {
       if (mounted) {
         setState(() => _isSaving = false);

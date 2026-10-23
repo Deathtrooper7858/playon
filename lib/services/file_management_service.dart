@@ -284,4 +284,103 @@ class FileManagementService {
       return false;
     }
   }
+
+  /// Mueve una carpeta completa con todas sus canciones a una nueva carpeta padre
+  static Future<String?> moveFolder({
+    required String sourceFolderPath,
+    required String targetParentPath,
+    required List<PlayOnSong> songsInFolder,
+  }) async {
+    try {
+      final srcDir = Directory(sourceFolderPath);
+      if (!srcDir.existsSync()) {
+        throw Exception('La carpeta de origen no existe.');
+      }
+
+      final folderName = p.basename(sourceFolderPath);
+      final destFolderPath = p.join(targetParentPath, folderName);
+
+      if (destFolderPath == sourceFolderPath) {
+        return destFolderPath;
+      }
+
+      final destDir = Directory(destFolderPath);
+      if (!destDir.existsSync()) {
+        destDir.createSync(recursive: true);
+      }
+
+      // 1. Mover todas las canciones contenidas
+      for (final song in songsInFolder) {
+        await moveSong(song: song, targetFolderPath: destFolderPath);
+      }
+
+      // 2. Mover archivos restantes o subdirectorios
+      try {
+        for (final ent in srcDir.listSync(recursive: false)) {
+          final destEntPath = p.join(destFolderPath, p.basename(ent.path));
+          if (ent is File && !File(destEntPath).existsSync()) {
+            ent.renameSync(destEntPath);
+            await NativeMediaScannerService.scanFile(ent.path);
+            await NativeMediaScannerService.scanFile(destEntPath);
+          }
+        }
+      } catch (_) {}
+
+      // 3. Eliminar carpeta de origen si quedó vacía
+      try {
+        if (srcDir.existsSync() && srcDir.listSync().isEmpty) {
+          srcDir.deleteSync(recursive: true);
+        }
+      } catch (_) {}
+
+      return destFolderPath;
+    } catch (e) {
+      debugPrint('Error moving folder: $e');
+      rethrow;
+    }
+  }
+
+  /// Obtiene información y lista los contenidos físicos de un directorio
+  static Future<Map<String, dynamic>> inspectFolder(String path) async {
+    final dir = Directory(path);
+    if (!dir.existsSync()) {
+      return {'exists': false, 'path': path, 'files': [], 'subdirs': []};
+    }
+
+    final subdirs = <String>[];
+    final files = <Map<String, dynamic>>[];
+
+    try {
+      final entries = dir.listSync(recursive: false, followLinks: false);
+      for (final e in entries) {
+        final name = p.basename(e.path);
+        if (e is Directory) {
+          subdirs.add(name);
+        } else if (e is File) {
+          final ext = p.extension(e.path).toLowerCase();
+          int size = 0;
+          try {
+            size = e.lengthSync();
+          } catch (_) {}
+          files.add({
+            'name': name,
+            'path': e.path,
+            'extension': ext,
+            'size': size,
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Error inspecting folder $path: $e');
+    }
+
+    return {
+      'exists': true,
+      'path': path,
+      'subdirs': subdirs,
+      'files': files,
+      'totalFiles': files.length,
+      'totalSubdirs': subdirs.length,
+    };
+  }
 }

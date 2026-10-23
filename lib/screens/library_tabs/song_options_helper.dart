@@ -128,53 +128,53 @@ class SongOptionsHelper {
                           );
                         },
                       ),
-                  ListTile(
-                    leading: const Icon(Icons.queue_music_rounded, color: PlayOnTheme.cyanAccent),
-                    title: const Text('Añadir a la cola', style: TextStyle(color: PlayOnTheme.textPrimary)),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      musicProvider.addToQueue(song, playNext: false);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Añadido a la cola de reproducción'),
-                          behavior: SnackBarBehavior.floating,
-                          duration: Duration(seconds: 2),
-                        ),
-                      );
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.playlist_add_rounded, color: PlayOnTheme.pinkAccent),
-                    title: const Text('Añadir a Playlist', style: TextStyle(color: PlayOnTheme.textPrimary)),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      AddToPlaylistDialog.show(context, song);
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.drive_file_move_outline, color: PlayOnTheme.amberWarning),
-                    title: const Text('Mover a carpeta', style: TextStyle(color: PlayOnTheme.textPrimary)),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      MoveToFolderSheet.show(context, song: song);
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.edit_note_rounded, color: PlayOnTheme.purpleGlow),
-                    title: const Text('Editar etiquetas ID3', style: TextStyle(color: PlayOnTheme.textPrimary)),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      EditTagsDialog.show(context, song);
-                    },
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF5350)),
-                    title: const Text('Eliminar del dispositivo', style: TextStyle(color: Color(0xFFEF5350))),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _confirmDelete(context, song);
-                    },
-                  ),
+                      ListTile(
+                        leading: const Icon(Icons.queue_music_rounded, color: PlayOnTheme.cyanAccent),
+                        title: const Text('Añadir a la cola', style: TextStyle(color: PlayOnTheme.textPrimary)),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          musicProvider.addToQueue(song, playNext: false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Añadido a la cola de reproducción'),
+                              behavior: SnackBarBehavior.floating,
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.playlist_add_rounded, color: PlayOnTheme.pinkAccent),
+                        title: const Text('Añadir a Playlist', style: TextStyle(color: PlayOnTheme.textPrimary)),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          AddToPlaylistDialog.show(context, song);
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.drive_file_move_outline, color: PlayOnTheme.amberWarning),
+                        title: const Text('Mover a carpeta', style: TextStyle(color: PlayOnTheme.textPrimary)),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          MoveToFolderSheet.show(context, song: song);
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.edit_note_rounded, color: PlayOnTheme.purpleGlow),
+                        title: const Text('Editar etiquetas ID3', style: TextStyle(color: PlayOnTheme.textPrimary)),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          EditTagsDialog.show(context, song);
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.delete_outline_rounded, color: Color(0xFFEF5350)),
+                        title: const Text('Eliminar del dispositivo', style: TextStyle(color: Color(0xFFEF5350))),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _confirmDelete(context, song);
+                        },
+                      ),
                     ],
                   ),
                 ),
@@ -214,6 +214,7 @@ class SongOptionsHelper {
               Navigator.pop(ctx);
               final success = await FileManagementService.deleteSong(song);
               if (success) {
+                provider.handleSongDeleted(song.id);
                 await provider.loadSongs();
                 messenger.showSnackBar(
                   const SnackBar(

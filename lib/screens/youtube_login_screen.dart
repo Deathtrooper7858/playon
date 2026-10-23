@@ -282,29 +282,37 @@ class _YoutubeLoginScreenState extends State<YoutubeLoginScreen> {
                   },
                   onReceivedError: (controller, request, error) {
                     debugPrint('WebView error: ${error.description}');
-                    setState(() {
-                      _isLoading = false;
-                    });
+                    if (mounted) {
+                      setState(() {
+                        _isLoading = false;
+                      });
+                    }
                   },
                   onLoadStart: (controller, url) {
-                    setState(() {
-                      _isLoading = true;
-                      _currentUrl = url?.toString() ?? '';
-                    });
+                    if (mounted) {
+                      setState(() {
+                        _isLoading = true;
+                        _currentUrl = url?.toString() ?? '';
+                      });
+                    }
                   },
                   onLoadStop: (controller, url) async {
-                    setState(() {
-                      _isLoading = false;
-                      _currentUrl = url?.toString() ?? '';
-                    });
+                    if (mounted) {
+                      setState(() {
+                        _isLoading = false;
+                        _currentUrl = url?.toString() ?? '';
+                      });
+                    }
                     await _checkSessionStatus();
                   },
                   onUpdateVisitedHistory: (controller, url, isReload) async {
-                    _currentUrl = url?.toString() ?? '';
+                    if (mounted) {
+                      _currentUrl = url?.toString() ?? '';
+                    }
                     await _checkSessionStatus();
                   },
                   onProgressChanged: (controller, progress) {
-                    if (progress == 100) {
+                    if (progress == 100 && mounted) {
                       setState(() {
                         _isLoading = false;
                       });

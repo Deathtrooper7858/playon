@@ -130,6 +130,101 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
     }
   }
 
+  Future<void> _moveFolderDialog(String currentPath, List<PlayOnSong> songs) async {
+    final provider = context.read<MusicProvider>();
+    final baseDir = await FileManagementService.getDefaultMusicBaseDir(provider.allSongs);
+    final otherFolders = provider.folders.where((f) => f != widget.folderName).toList();
+
+    if (!mounted) return;
+
+    final targetPath = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        decoration: BoxDecoration(
+          color: PlayOnTheme.bgCard,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border.all(color: PlayOnTheme.glassBorder),
+        ),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.drive_file_move_rounded, color: PlayOnTheme.cyanAccent),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Mover carpeta "${widget.folderName}"',
+                    style: const TextStyle(color: PlayOnTheme.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Selecciona la carpeta de destino donde ubicar esta carpeta:',
+              style: TextStyle(color: PlayOnTheme.textSecondary, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.home_filled, color: PlayOnTheme.purpleGlow),
+              title: const Text('Raíz de Música', style: TextStyle(color: PlayOnTheme.textPrimary, fontWeight: FontWeight.bold)),
+              subtitle: Text(baseDir, style: const TextStyle(color: PlayOnTheme.textTertiary, fontSize: 11)),
+              onTap: () => Navigator.pop(ctx, baseDir),
+            ),
+            const Divider(color: PlayOnTheme.divider),
+            if (otherFolders.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text('No hay otras subcarpetas', style: TextStyle(color: PlayOnTheme.textTertiary, fontSize: 12)),
+              )
+            else
+              ...otherFolders.map((f) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.folder_rounded, color: PlayOnTheme.cyanAccent),
+                title: Text(f, style: const TextStyle(color: PlayOnTheme.textPrimary)),
+                onTap: () => Navigator.pop(ctx, '$baseDir/$f'),
+              )),
+          ],
+        ),
+      ),
+    );
+
+    if (targetPath != null && mounted) {
+      try {
+        await FileManagementService.moveFolder(
+          sourceFolderPath: currentPath,
+          targetParentPath: targetPath,
+          songsInFolder: songs,
+        );
+        if (!mounted) return;
+        final navigator = Navigator.of(context);
+        final messenger = ScaffoldMessenger.of(context);
+        await provider.loadSongs();
+        navigator.pop();
+        messenger.showSnackBar(
+          const SnackBar(
+            backgroundColor: PlayOnTheme.bgCard,
+            content: Text('Carpeta movida exitosamente', style: TextStyle(color: PlayOnTheme.textPrimary)),
+          ),
+        );
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: PlayOnTheme.bgCard,
+            content: Text('Error al mover carpeta: $e', style: const TextStyle(color: PlayOnTheme.pinkAccent)),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _deleteFolderDialog(String currentPath, List<PlayOnSong> songs) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -331,11 +426,23 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
               onSelected: (val) {
                 if (val == 'rename' && folderPath.isNotEmpty) {
                   _renameFolderDialog(folderPath, folderSongs);
+                } else if (val == 'move' && folderPath.isNotEmpty) {
+                  _moveFolderDialog(folderPath, folderSongs);
                 } else if (val == 'delete' && folderPath.isNotEmpty) {
                   _deleteFolderDialog(folderPath, folderSongs);
                 }
               },
               itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'move',
+                  child: Row(
+                    children: [
+                      Icon(Icons.drive_file_move_rounded, color: PlayOnTheme.cyanAccent, size: 18),
+                      SizedBox(width: 10),
+                      Text('Mover carpeta', style: TextStyle(color: PlayOnTheme.textPrimary)),
+                    ],
+                  ),
+                ),
                 const PopupMenuItem(
                   value: 'rename',
                   child: Row(

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:on_audio_query/on_audio_query.dart';
@@ -334,118 +335,10 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
   }
 
   void _showTimerOptions(BuildContext context) {
-    bool fadeOut = true;
-
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            final provider = context.watch<MusicProvider>();
-            final hasTimer = provider.hasSleepTimer;
-            final remaining = provider.sleepTimeRemaining;
-
-            return ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: PlayOnTheme.bgCard.withValues(alpha: 0.95),
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                    border: Border.all(color: PlayOnTheme.glassBorder, width: 1.5),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                  child: SafeArea(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Center(
-                          child: Container(
-                            width: 44,
-                            height: 4,
-                            margin: const EdgeInsets.only(bottom: 16),
-                            decoration: BoxDecoration(color: PlayOnTheme.divider, borderRadius: BorderRadius.circular(2)),
-                          ),
-                        ),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'Temporizador de Apagado',
-                              style: TextStyle(
-                                color: PlayOnTheme.textPrimary,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            if (hasTimer && remaining != null)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: PlayOnTheme.amberWarning.withValues(alpha: 0.2),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  '${remaining.inMinutes}:${(remaining.inSeconds % 60).toString().padLeft(2, '0')}',
-                                  style: const TextStyle(
-                                    color: PlayOnTheme.amberWarning,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        SwitchListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Desvanecimiento suave (Fade-out)', style: TextStyle(color: PlayOnTheme.textPrimary, fontSize: 13.5)),
-                          subtitle: const Text('Atenúa el volumen progresivamente antes de apagar', style: TextStyle(color: PlayOnTheme.textTertiary, fontSize: 11.5)),
-                          value: fadeOut,
-                          activeTrackColor: PlayOnTheme.purplePrimary,
-                          onChanged: (v) => setSheetState(() => fadeOut = v),
-                        ),
-                        const Divider(color: PlayOnTheme.divider),
-                        ...[15, 30, 45, 60, 90].map((mins) => ListTile(
-                              dense: true,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              leading: const Icon(Icons.timer_outlined, color: PlayOnTheme.amberWarning),
-                              title: Text('$mins minutos', style: const TextStyle(color: PlayOnTheme.textPrimary, fontSize: 14)),
-                              onTap: () {
-                                provider.setSleepTimer(Duration(minutes: mins), fadeOut: fadeOut);
-                                Navigator.pop(ctx);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Música se apagará en $mins min${fadeOut ? ' con fade-out' : ''}'),
-                                    backgroundColor: PlayOnTheme.bgSurface,
-                                    behavior: SnackBarBehavior.floating,
-                                  ),
-                                );
-                              },
-                            )),
-                        if (hasTimer) ...[
-                          ListTile(
-                            dense: true,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            leading: const Icon(Icons.timer_off_outlined, color: PlayOnTheme.pinkAccent),
-                            title: const Text('Cancelar Temporizador', style: TextStyle(color: PlayOnTheme.pinkAccent, fontSize: 14)),
-                            onTap: () {
-                              provider.cancelSleepTimer();
-                              Navigator.pop(ctx);
-                            },
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-      },
+      builder: (_) => const _SleepTimerModalSheet(),
     );
   }
 
@@ -738,6 +631,140 @@ class _EmptyPlayer extends StatelessWidget {
           const SizedBox(height: 20),
           const Text('Ninguna canción seleccionada', style: TextStyle(color: PlayOnTheme.textPrimary, fontSize: 18)),
         ],
+      ),
+    );
+  }
+}
+
+class _SleepTimerModalSheet extends StatefulWidget {
+  const _SleepTimerModalSheet();
+
+  @override
+  State<_SleepTimerModalSheet> createState() => _SleepTimerModalSheetState();
+}
+
+class _SleepTimerModalSheetState extends State<_SleepTimerModalSheet> {
+  bool _fadeOut = true;
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.watch<MusicProvider>();
+    final hasTimer = provider.hasSleepTimer;
+    final remaining = provider.sleepTimeRemaining;
+
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          decoration: BoxDecoration(
+            color: PlayOnTheme.bgCard.withValues(alpha: 0.95),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            border: Border.all(color: PlayOnTheme.glassBorder, width: 1.5),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: Container(
+                    width: 44,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: PlayOnTheme.divider,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Temporizador de Apagado',
+                      style: TextStyle(
+                        color: PlayOnTheme.textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    if (hasTimer && remaining != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: PlayOnTheme.amberWarning.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '${remaining.inMinutes}:${(remaining.inSeconds % 60).toString().padLeft(2, '0')}',
+                          style: const TextStyle(
+                            color: PlayOnTheme.amberWarning,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Desvanecimiento suave (Fade-out)', style: TextStyle(color: PlayOnTheme.textPrimary, fontSize: 13.5)),
+                  subtitle: const Text('Atenúa el volumen progresivamente antes de apagar', style: TextStyle(color: PlayOnTheme.textTertiary, fontSize: 11.5)),
+                  value: _fadeOut,
+                  activeTrackColor: PlayOnTheme.purplePrimary,
+                  onChanged: (v) => setState(() => _fadeOut = v),
+                ),
+                const Divider(color: PlayOnTheme.divider),
+                ...[15, 30, 45, 60, 90].map((mins) => ListTile(
+                      dense: true,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      leading: const Icon(Icons.timer_outlined, color: PlayOnTheme.amberWarning),
+                      title: Text('$mins minutos', style: const TextStyle(color: PlayOnTheme.textPrimary, fontSize: 14)),
+                      onTap: () {
+                        provider.setSleepTimer(Duration(minutes: mins), fadeOut: _fadeOut);
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Música se apagará en $mins min${_fadeOut ? ' con fade-out' : ''}'),
+                            backgroundColor: PlayOnTheme.bgSurface,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      },
+                    )),
+                if (hasTimer) ...[
+                  ListTile(
+                    dense: true,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    leading: const Icon(Icons.timer_off_outlined, color: PlayOnTheme.pinkAccent),
+                    title: const Text('Cancelar Temporizador', style: TextStyle(color: PlayOnTheme.pinkAccent, fontSize: 14)),
+                    onTap: () {
+                      provider.cancelSleepTimer();
+                      Navigator.pop(context);
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

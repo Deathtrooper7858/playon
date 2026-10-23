@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/music_provider.dart';
 import '../providers/video_provider.dart';
 import '../theme.dart';
+import 'ai_assistant_screen.dart';
 import 'library_tabs/favorites_tab.dart';
 import 'library_tabs/folders_tab.dart';
 import 'library_tabs/playlists_tab.dart';
@@ -111,6 +112,34 @@ class _LibraryScreenState extends State<LibraryScreen>
               ],
             ),
             const Spacer(),
+            GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AiAssistantScreen()),
+                );
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  gradient: PlayOnTheme.primaryGradient,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: PlayOnTheme.glowShadow(blur: 8),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.auto_awesome_rounded, color: Colors.white, size: 14),
+                    SizedBox(width: 4),
+                    Text(
+                      'IA',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11.5),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
             IconButton(
               icon: const Icon(Icons.search_rounded),
               color: PlayOnTheme.textSecondary,

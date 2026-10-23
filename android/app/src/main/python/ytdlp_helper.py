@@ -486,35 +486,68 @@ def set_audio_tags(file_path, title, artist, album):
         if not file_path:
             return "ERROR: Ruta inválida"
 
+        if not os.path.exists(file_path):
+            return f"ERROR: El archivo no existe en {file_path}"
+
+        title = str(title).strip() if title else ""
+        artist = str(artist).strip() if artist else ""
+        album = str(album).strip() if album else ""
+
         if file_path.lower().endswith(('.m4a', '.mp4')):
             mp4 = MP4(file_path)
             if mp4.tags is None:
                 mp4.add_tags()
-            if title: mp4.tags['\xa9nam'] = [title]
-            if artist: mp4.tags['\xa9ART'] = [artist]
-            if album: mp4.tags['\xa9alb'] = [album]
+            if title:
+                mp4.tags['\xa9nam'] = [title]
+            if artist:
+                mp4.tags['\xa9ART'] = [artist]
+                mp4.tags['aART'] = [artist]
+            if album:
+                mp4.tags['\xa9alb'] = [album]
             mp4.save()
             return "SUCCESS"
         elif file_path.lower().endswith('.mp3'):
             try:
                 audio = EasyID3(file_path)
+                if title: audio['title'] = [title]
+                if artist: audio['artist'] = [artist]
+                if album: audio['album'] = [album]
+                audio.save(v2_version=3)
+                return "SUCCESS"
             except ID3NoHeaderError:
                 id3 = ID3()
                 id3.save(file_path)
                 audio = EasyID3(file_path)
-            if title: audio['title'] = [title]
-            if artist: audio['artist'] = [artist]
-            if album: audio['album'] = [album]
-            audio.save()
-            return "SUCCESS"
-        else:
-            audio = MutagenFile(file_path, easy=True)
-            if audio is not None and hasattr(audio, 'tags') and audio.tags is not None:
                 if title: audio['title'] = [title]
                 if artist: audio['artist'] = [artist]
                 if album: audio['album'] = [album]
-                audio.save()
+                audio.save(v2_version=3)
                 return "SUCCESS"
+            except Exception:
+                from mutagen.id3 import TIT2, TPE1, TALB
+                try:
+                    audio = ID3(file_path)
+                except Exception:
+                    audio = ID3()
+                if title: audio['TIT2'] = TIT2(encoding=3, text=[title])
+                if artist: audio['TPE1'] = TPE1(encoding=3, text=[artist])
+                if album: audio['TALB'] = TALB(encoding=3, text=[album])
+                audio.save(file_path, v2_version=3)
+                return "SUCCESS"
+        else:
+            audio = MutagenFile(file_path, easy=True)
+            if audio is not None:
+                if audio.tags is None:
+                    try:
+                        audio.add_tags()
+                    except Exception:
+                        pass
+                if hasattr(audio, 'tags') and audio.tags is not None:
+                    if title: audio['title'] = [title]
+                    if artist: audio['artist'] = [artist]
+                    if album: audio['album'] = [album]
+                    audio.save()
+                    return "SUCCESS"
             return "ERROR: Formato no soportado para edición de tags"
     except Exception as e:
         return "ERROR: " + str(e) + "\n" + traceback.format_exc()

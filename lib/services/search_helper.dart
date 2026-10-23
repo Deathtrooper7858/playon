@@ -1,4 +1,5 @@
 import '../models/song_model.dart';
+import '../models/video_model.dart';
 
 class SearchHelper {
   static const Map<String, String> _diacriticsMap = {
@@ -49,5 +50,20 @@ class SearchHelper {
 
     final target = normalize(text);
     return tokens.every((token) => target.contains(token));
+  }
+
+  /// Verifica si un video coincide con la consulta de búsqueda multitérrmino y sin distinción de acentos.
+  static bool matchesVideo(PlayOnVideo video, String query) {
+    if (query.trim().isEmpty) return true;
+    final normalizedQuery = normalize(query);
+    final tokens = normalizedQuery.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+    if (tokens.isEmpty) return true;
+
+    final title = normalize(video.title);
+    final author = normalize(video.author);
+    final folder = normalize(video.folderName);
+    final combined = '$title $author $folder';
+
+    return tokens.every((token) => combined.contains(token));
   }
 }

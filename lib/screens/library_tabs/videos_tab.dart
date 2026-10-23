@@ -4,6 +4,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import '../../models/video_model.dart';
 import '../../providers/video_provider.dart';
+import '../../services/search_helper.dart';
 import '../../theme.dart';
 import '../video_player_screen.dart';
 
@@ -19,12 +20,7 @@ class VideosTab extends StatelessWidget {
 
   List<PlayOnVideo> _filterVideos(List<PlayOnVideo> videos) {
     if (searchQuery.trim().isEmpty) return videos;
-    final q = searchQuery.toLowerCase().trim();
-    return videos.where((v) {
-      return v.title.toLowerCase().contains(q) ||
-          v.author.toLowerCase().contains(q) ||
-          v.folderName.toLowerCase().contains(q);
-    }).toList();
+    return videos.where((v) => SearchHelper.matchesVideo(v, searchQuery)).toList();
   }
 
   @override
