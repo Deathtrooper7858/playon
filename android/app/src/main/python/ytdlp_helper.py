@@ -23,6 +23,15 @@ def set_temp_dir(path):
         os.environ["TMPDIR"] = path
         tempfile.tempdir = path
 
+def _safe_int_duration(val):
+    """Convierte de forma segura duraciones flotantes, enteras o string a segundos enteros."""
+    if not val:
+        return 0
+    try:
+        return int(float(val))
+    except (ValueError, TypeError):
+        return 0
+
 def clean_title(title):
     """Limpia sufijos típicos de YouTube / YouTube Music en títulos de canciones."""
     if not title:
@@ -169,7 +178,7 @@ def get_playlist_info(url, cookies_str="", extract_single=False):
                         "id": vid_id,
                         "title": title or raw_title,
                         "artist": artist or "Artista desconocido",
-                        "duration": int(duration) if duration else 0,
+                        "duration": _safe_int_duration(duration),
                         "thumbnail": thumbnail,
                         "url": f"https://www.youtube.com/watch?v={vid_id}" if vid_id else url,
                     })
@@ -187,7 +196,7 @@ def get_playlist_info(url, cookies_str="", extract_single=False):
                     "id": vid_id,
                     "title": title or raw_title,
                     "artist": artist or "Artista desconocido",
-                    "duration": int(duration) if duration else 0,
+                    "duration": _safe_int_duration(duration),
                     "thumbnail": thumbnail,
                     "url": f"https://www.youtube.com/watch?v={vid_id}" if vid_id else url,
                 })

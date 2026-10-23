@@ -466,10 +466,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
 
             // Mini Player
             _MiniPlayerSlot(
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const NowPlayingScreen()),
-              ),
+              onTap: () => NowPlayingScreen.open(context),
             ),
           ],
         ),

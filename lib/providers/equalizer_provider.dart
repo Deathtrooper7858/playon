@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/native_equalizer_service.dart';
 
-class EqualizerProvider extends ChangeNotifier {
+class EqualizerProvider extends ChangeNotifier with WidgetsBindingObserver {
   bool _isAvailable = false;
   bool _enabled = false;
   int _numBands = 0;
@@ -29,7 +29,19 @@ class EqualizerProvider extends ChangeNotifier {
   int get bassBoost => _bassBoost;
 
   EqualizerProvider() {
+    WidgetsBinding.instance.addObserver(this);
     init();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      _saveDebounce?.cancel();
+      _saveState();
+    }
   }
 
   Future<void> init({int? audioSessionId}) async {
@@ -177,6 +189,8 @@ class EqualizerProvider extends ChangeNotifier {
   @override
   void dispose() {
     _saveDebounce?.cancel();
+    _saveState();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 }

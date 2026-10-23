@@ -111,7 +111,7 @@ class FavoritesTab extends StatelessWidget {
             ),
             Expanded(
               child: ListView.builder(
-                padding: const EdgeInsets.only(bottom: 90),
+                padding: const EdgeInsets.only(bottom: 140),
                 physics: const BouncingScrollPhysics(),
                 itemCount: favorites.length,
                 itemBuilder: (context, index) {

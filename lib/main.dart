@@ -7,9 +7,12 @@ import 'providers/equalizer_provider.dart';
 import 'providers/music_provider.dart';
 import 'providers/playlist_provider.dart';
 import 'providers/download_provider.dart';
+import 'models/song_model.dart';
 import 'screens/library_screen.dart';
 import 'screens/download_screen.dart';
+import 'screens/now_playing_screen.dart';
 import 'theme.dart';
+import 'widgets/mini_player.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -103,7 +106,22 @@ class _RootScaffoldState extends State<_RootScaffold> {
           _buildOffstageScreen(1, const DownloadScreen()),
         ],
       ),
-      bottomNavigationBar: _buildNavBar(),
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Selector<MusicProvider, PlayOnSong?>(
+            selector: (_, p) => p.currentSong,
+            builder: (context, song, _) {
+              if (song == null) return const SizedBox.shrink();
+              return MiniPlayer(
+                provider: context.read<MusicProvider>(),
+                onTap: () => NowPlayingScreen.open(context),
+              );
+            },
+          ),
+          _buildNavBar(),
+        ],
+      ),
     );
   }
 

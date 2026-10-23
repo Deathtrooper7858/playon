@@ -90,7 +90,7 @@ class PlaylistsTab extends StatelessWidget {
             else
               Expanded(
                 child: ListView.builder(
-                  padding: const EdgeInsets.only(bottom: 90, left: 14, right: 14),
+                  padding: const EdgeInsets.only(bottom: 140, left: 14, right: 14),
                   physics: const BouncingScrollPhysics(),
                   itemCount: playlists.length,
                   itemBuilder: (context, index) {

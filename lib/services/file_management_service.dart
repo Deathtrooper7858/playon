@@ -44,7 +44,10 @@ class FileManagementService {
         .trim();
     // Eliminar puntos o espacios finales que dan error en Android/FAT32/exFAT
     cleaned = cleaned.replaceAll(RegExp(r'[.\s]+$'), '');
-    return cleaned.isEmpty ? 'unnamed' : cleaned;
+    if (cleaned.isEmpty || cleaned.replaceAll(RegExp(r'[_.\s]'), '').isEmpty) {
+      return 'unnamed';
+    }
+    return cleaned;
   }
 
   /// Mueve una canción a la carpeta especificada

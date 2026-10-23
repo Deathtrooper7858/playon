@@ -1,96 +1,108 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../providers/music_provider.dart';
 import '../theme.dart';
 
 class ControlButtons extends StatelessWidget {
-  final MusicProvider provider;
+  final MusicProvider? provider;
 
-  const ControlButtons({super.key, required this.provider});
+  const ControlButtons({super.key, this.provider});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // Shuffle & Repeat Row
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+    final p = provider ?? context.read<MusicProvider>();
+
+    return Selector<MusicProvider, ({bool isPlaying, bool isShuffle, PlayerRepeatMode repeatMode})>(
+      selector: (_, mp) => (
+        isPlaying: mp.isPlaying,
+        isShuffle: mp.isShuffle,
+        repeatMode: mp.repeatMode,
+      ),
+      builder: (context, state, _) {
+        return Column(
           children: [
-            _ToggleButton(
-              icon: Icons.shuffle_rounded,
-              isActive: provider.isShuffle,
-              onTap: provider.toggleShuffle,
-              label: 'Aleatorio',
+            // Shuffle & Repeat Row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _ToggleButton(
+                  icon: Icons.shuffle_rounded,
+                  isActive: state.isShuffle,
+                  onTap: p.toggleShuffle,
+                  label: 'Aleatorio',
+                ),
+                _ToggleButton(
+                  icon: state.repeatMode == PlayerRepeatMode.one
+                      ? Icons.repeat_one_rounded
+                      : Icons.repeat_rounded,
+                  isActive: state.repeatMode != PlayerRepeatMode.none,
+                  onTap: p.toggleRepeat,
+                  label: state.repeatMode == PlayerRepeatMode.one
+                      ? 'Repetir 1'
+                      : (state.repeatMode == PlayerRepeatMode.all ? 'Repetir todo' : 'Repetir'),
+                ),
+              ],
             ),
-            _ToggleButton(
-              icon: provider.repeatMode == PlayerRepeatMode.one
-                  ? Icons.repeat_one_rounded
-                  : Icons.repeat_rounded,
-              isActive: provider.repeatMode != PlayerRepeatMode.none,
-              onTap: provider.toggleRepeat,
-              label: provider.repeatMode == PlayerRepeatMode.one
-                  ? 'Repetir 1'
-                  : (provider.repeatMode == PlayerRepeatMode.all ? 'Repetir todo' : 'Repetir'),
+
+            const SizedBox(height: 24),
+
+            // Main Audio Controls Row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Previous
+                _CircleIconButton(
+                  icon: Icons.skip_previous_rounded,
+                  size: 40,
+                  iconSize: 28,
+                  onTap: p.previous,
+                ),
+
+                // Play / Pause Giant Glow Button
+                GestureDetector(
+                  onTap: p.playPause,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    width: 76,
+                    height: 76,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: PlayOnTheme.primaryGradient,
+                      boxShadow: [
+                        BoxShadow(
+                          color: PlayOnTheme.purplePrimary.withValues(alpha: 0.55),
+                          blurRadius: 28,
+                          spreadRadius: 3,
+                        ),
+                        BoxShadow(
+                          color: PlayOnTheme.pinkAccent.withValues(alpha: 0.35),
+                          blurRadius: 20,
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      state.isPlaying
+                          ? Icons.pause_rounded
+                          : Icons.play_arrow_rounded,
+                      color: Colors.white,
+                      size: 42,
+                    ),
+                  ),
+                ),
+
+                // Next
+                _CircleIconButton(
+                  icon: Icons.skip_next_rounded,
+                  size: 40,
+                  iconSize: 28,
+                  onTap: p.next,
+                ),
+              ],
             ),
           ],
-        ),
-
-        const SizedBox(height: 24),
-
-        // Main Audio Controls Row
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // Previous
-            _CircleIconButton(
-              icon: Icons.skip_previous_rounded,
-              size: 40,
-              iconSize: 28,
-              onTap: provider.previous,
-            ),
-
-            // Play / Pause Giant Glow Button
-            GestureDetector(
-              onTap: provider.playPause,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                width: 76,
-                height: 76,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: PlayOnTheme.primaryGradient,
-                  boxShadow: [
-                    BoxShadow(
-                      color: PlayOnTheme.purplePrimary.withValues(alpha: 0.55),
-                      blurRadius: 28,
-                      spreadRadius: 3,
-                    ),
-                    BoxShadow(
-                      color: PlayOnTheme.pinkAccent.withValues(alpha: 0.35),
-                      blurRadius: 20,
-                    ),
-                  ],
-                ),
-                child: Icon(
-                  provider.isPlaying
-                      ? Icons.pause_rounded
-                      : Icons.play_arrow_rounded,
-                  color: Colors.white,
-                  size: 42,
-                ),
-              ),
-            ),
-
-            // Next
-            _CircleIconButton(
-              icon: Icons.skip_next_rounded,
-              size: 40,
-              iconSize: 28,
-              onTap: provider.next,
-            ),
-          ],
-        ),
-      ],
+        );
+      },
     );
   }
 }

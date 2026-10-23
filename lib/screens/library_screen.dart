@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../models/song_model.dart';
 import '../providers/music_provider.dart';
 import '../theme.dart';
-import '../widgets/mini_player.dart';
 import 'library_tabs/favorites_tab.dart';
 import 'library_tabs/folders_tab.dart';
 import 'library_tabs/playlists_tab.dart';
 import 'library_tabs/songs_tab.dart';
-import 'now_playing_screen.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -64,25 +61,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                     onExploreSongs: () => _tabController.animateTo(0),
                   ),
                   PlaylistsTab(searchQuery: _searchQuery),
-                  const FoldersTab(),
+                  FoldersTab(searchQuery: _searchQuery),
                 ],
-              ),
-            ),
-            _MiniPlayerSlot(
-              onTap: () => Navigator.push(
-                context,
-                PageRouteBuilder(
-                  pageBuilder: (_, __, ___) => const NowPlayingScreen(),
-                  transitionsBuilder: (_, animation, __, child) {
-                    return SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, 1),
-                        end: Offset.zero,
-                      ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
-                      child: child,
-                    );
-                  },
-                ),
               ),
             ),
           ],
@@ -245,26 +225,6 @@ class _LibraryScreenState extends State<LibraryScreen>
           ),
         ],
       ),
-    );
-  }
-}
-
-// ── Mini Player Slot ────────────────────────────────────────────────────────
-class _MiniPlayerSlot extends StatelessWidget {
-  final VoidCallback onTap;
-  const _MiniPlayerSlot({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Selector<MusicProvider, PlayOnSong?>(
-      selector: (_, p) => p.currentSong,
-      builder: (_, song, __) {
-        if (song == null) return const SizedBox.shrink();
-        return MiniPlayer(
-          provider: context.read<MusicProvider>(),
-          onTap: onTap,
-        );
-      },
     );
   }
 }

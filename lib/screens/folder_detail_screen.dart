@@ -252,10 +252,7 @@ class _FolderDetailScreenState extends State<FolderDetailScreen> {
 
                 // Mini Player
                 _MiniPlayerSlot(
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const NowPlayingScreen()),
-                  ),
+                  onTap: () => NowPlayingScreen.open(context),
                 ),
               ],
             ),

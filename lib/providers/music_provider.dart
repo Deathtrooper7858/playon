@@ -1,13 +1,16 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:on_audio_query/on_audio_query.dart' as oaq;
+import 'package:path/path.dart' as p;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/song_model.dart';
+import '../services/file_management_service.dart';
 
 enum PlayerRepeatMode { none, one, all }
 enum SongSortOption { title, artist, album, duration, date }
@@ -25,8 +28,12 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
   // Sleep timer & fadeout
   Timer? _sleepTimer;
   Timer? _fadeTimer;
+  Timer? _fadePeriodicTimer;
   DateTime? _sleepTimerEndTime;
   double _preFadeVolume = 1.0;
+
+  // Concurrency guard for playlist updates
+  Completer<void>? _playlistUpdateCompleter;
 
   // Throttle for position updates: last notified position time
   DateTime _lastPositionNotify = DateTime.fromMillisecondsSinceEpoch(0);
@@ -261,7 +268,7 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
 
       final favs = prefs.getStringList('favoriteIds') ?? [];
       _favoriteIds.clear();
-      _favoriteIds.addAll(favs.map((e) => int.tryParse(e) ?? 0));
+      _favoriteIds.addAll(favs.map((e) => int.tryParse(e)).whereType<int>());
 
       final savedPositionMs = prefs.getInt('position') ?? 0;
       final savedPosition = Duration(milliseconds: savedPositionMs);
@@ -415,6 +422,24 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
           counts[song.folderName!] = (counts[song.folderName!] ?? 0) + 1;
         }
       }
+
+      // Descubrir carpetas físicas en el almacenamiento (incluidas carpetas recién creadas vacías)
+      try {
+        final baseDirStr = await FileManagementService.getDefaultMusicBaseDir(_allSongs);
+        final baseDir = Directory(baseDirStr);
+        if (baseDir.existsSync()) {
+          for (final entity in baseDir.listSync()) {
+            if (entity is Directory) {
+              final name = p.basename(entity.path);
+              if (!name.startsWith('.') && name != 'Android') {
+                folderSet.add(name);
+                counts.putIfAbsent(name, () => 0);
+              }
+            }
+          }
+        }
+      } catch (_) {}
+
       _folders = folderSet.toList()..sort();
       _folderSongCounts = counts;
 
@@ -481,35 +506,50 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
 
-    final sources = _currentQueue
-        .map((song) {
-          final uri = (song.uri.startsWith('content://') ||
-                  song.uri.startsWith('http://') ||
-                  song.uri.startsWith('https://') ||
-                  song.uri.startsWith('file://'))
-              ? Uri.parse(song.uri)
-              : Uri.file(song.filePath.isNotEmpty ? song.filePath : song.uri);
+    // Esperar si hay una actualización previa en curso para evitar colisiones en setAudioSources
+    while (_playlistUpdateCompleter != null) {
+      await _playlistUpdateCompleter!.future;
+    }
 
-          return AudioSource.uri(
-            uri,
-            tag: MediaItem(
-              id: song.id.toString(),
-              title: song.title,
-              artist: song.artist,
-              album: song.album,
-              artUri: null,
-              duration: Duration(milliseconds: song.duration),
-              playable: true,
-            ),
-          );
-        })
-        .toList();
+    final completer = Completer<void>();
+    _playlistUpdateCompleter = completer;
 
-    await _player.setAudioSources(
-      sources,
-      initialIndex: initialIndex,
-      initialPosition: position,
-    );
+    try {
+      final sources = _currentQueue
+          .map((song) {
+            final uri = (song.uri.startsWith('content://') ||
+                    song.uri.startsWith('http://') ||
+                    song.uri.startsWith('https://') ||
+                    song.uri.startsWith('file://'))
+                ? Uri.parse(song.uri)
+                : Uri.file(song.filePath.isNotEmpty ? song.filePath : song.uri);
+
+            return AudioSource.uri(
+              uri,
+              tag: MediaItem(
+                id: song.id.toString(),
+                title: song.title,
+                artist: song.artist,
+                album: song.album,
+                artUri: song.albumArt != null ? Uri.tryParse(song.albumArt!) : null,
+                duration: Duration(milliseconds: song.duration),
+                playable: true,
+              ),
+            );
+          })
+          .toList();
+
+      await _player.setAudioSources(
+        sources,
+        initialIndex: initialIndex,
+        initialPosition: position,
+      );
+    } catch (e) {
+      debugPrint('Error actualizando fuentes de audio: $e');
+    } finally {
+      completer.complete();
+      _playlistUpdateCompleter = null;
+    }
   }
 
   void reorderQueue(int oldIndex, int newIndex) {
@@ -584,7 +624,13 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
       return;
     }
 
-    if (_player.sequence.isEmpty || _player.sequence.length != _currentQueue.length) {
+    final currentSeq = _player.sequence;
+    final isOutOfSync = currentSeq.length != _currentQueue.length ||
+        (index < currentSeq.length &&
+            currentSeq[index].tag is MediaItem &&
+            (currentSeq[index].tag as MediaItem).id != _currentQueue[index].id.toString());
+
+    if (currentSeq.isEmpty || isOutOfSync) {
       await _updatePlaylist(initialIndex: index);
     }
 
@@ -711,15 +757,15 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
     const steps = 20;
     const interval = Duration(seconds: 1);
     int currentStep = 0;
-    final initialVol = _player.volume;
-
-    Timer.periodic(interval, (timer) {
+    _fadePeriodicTimer?.cancel();
+    _fadePeriodicTimer = Timer.periodic(interval, (timer) {
       currentStep++;
       if (currentStep >= steps || _sleepTimer == null) {
         timer.cancel();
+        _fadePeriodicTimer = null;
         return;
       }
-      final newVol = (initialVol * (1.0 - (currentStep / steps))).clamp(0.0, 1.0);
+      final newVol = (_preFadeVolume * (1.0 - (currentStep / steps))).clamp(0.0, 1.0);
       _player.setVolume(newVol);
     });
   }
@@ -735,6 +781,8 @@ class MusicProvider extends ChangeNotifier with WidgetsBindingObserver {
     _sleepTimer = null;
     _fadeTimer?.cancel();
     _fadeTimer = null;
+    _fadePeriodicTimer?.cancel();
+    _fadePeriodicTimer = null;
     _sleepTimerEndTime = null;
   }
 

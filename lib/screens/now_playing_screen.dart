@@ -16,6 +16,25 @@ import '../widgets/progress_bar_widget.dart';
 class NowPlayingScreen extends StatefulWidget {
   const NowPlayingScreen({super.key});
 
+  /// Abre la pantalla NowPlaying con una animación fluida de deslizamiento vertical
+  static Future<void> open(BuildContext context) {
+    return Navigator.push(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (_, __, ___) => const NowPlayingScreen(),
+        transitionsBuilder: (_, animation, __, child) {
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 1),
+              end: Offset.zero,
+            ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+            child: child,
+          );
+        },
+      ),
+    );
+  }
+
   @override
   State<NowPlayingScreen> createState() => _NowPlayingScreenState();
 }
@@ -611,16 +630,16 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                                     ],
                                   ),
                                 ),
-                                Consumer<MusicProvider>(
-                                  builder: (context, provider, _) {
-                                    final isFav = provider.isFavorite(song.id);
+                                Selector<MusicProvider, bool>(
+                                  selector: (_, provider) => provider.isFavorite(song.id),
+                                  builder: (context, isFav, _) {
                                     return IconButton(
                                       icon: Icon(
                                         isFav ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                                         color: isFav ? PlayOnTheme.pinkAccent : PlayOnTheme.textSecondary,
                                         size: 28,
                                       ),
-                                      onPressed: () => provider.toggleFavorite(song.id),
+                                      onPressed: () => context.read<MusicProvider>().toggleFavorite(song.id),
                                     );
                                   },
                                 ),
@@ -637,9 +656,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                             const SizedBox(height: 20),
 
                             // Control Buttons
-                            Consumer<MusicProvider>(
-                              builder: (context, provider, _) => ControlButtons(provider: provider),
-                            ),
+                            const ControlButtons(),
 
                             const SizedBox(height: 26),
 

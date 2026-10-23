@@ -149,7 +149,7 @@ class _SongsTabState extends State<SongsTab> {
             // Song list
             Expanded(
               child: ListView.builder(
-                padding: const EdgeInsets.only(bottom: 90),
+                padding: const EdgeInsets.only(bottom: 140),
                 physics: const BouncingScrollPhysics(),
                 itemCount: songs.length,
                 itemBuilder: (context, index) {

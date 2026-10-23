@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/music_provider.dart';
 import '../../services/file_management_service.dart';
+import '../../services/search_helper.dart';
 import '../../theme.dart';
 import '../folder_detail_screen.dart';
 
 class FoldersTab extends StatelessWidget {
-  const FoldersTab({super.key});
+  final String searchQuery;
+
+  const FoldersTab({super.key, this.searchQuery = ''});
 
   @override
   Widget build(BuildContext context) {
@@ -14,6 +17,13 @@ class FoldersTab extends StatelessWidget {
       builder: (context, provider, _) {
         final folders = provider.folders;
         final counts = provider.folderSongCounts;
+        final isSearching = searchQuery.trim().isNotEmpty;
+
+        final filteredFolders = isSearching
+            ? folders.where((f) => SearchHelper.matchesText(f, searchQuery)).toList()
+            : folders;
+        final showAllOption = !isSearching || SearchHelper.matchesText('Todas las canciones', searchQuery);
+        final totalItems = filteredFolders.length + (showAllOption ? 1 : 0);
 
         return Column(
           children: [
@@ -22,7 +32,9 @@ class FoldersTab extends StatelessWidget {
               child: Row(
                 children: [
                   Text(
-                    '${folders.length} ${folders.length == 1 ? 'carpeta' : 'carpetas'}',
+                    isSearching
+                        ? '${filteredFolders.length} ${filteredFolders.length == 1 ? 'carpeta encontrada' : 'carpetas encontradas'}'
+                        : '${folders.length} ${folders.length == 1 ? 'carpeta' : 'carpetas'}',
                     style: const TextStyle(
                       color: PlayOnTheme.textSecondary,
                       fontSize: 13,
@@ -81,15 +93,51 @@ class FoldersTab extends StatelessWidget {
                   ),
                 ),
               )
+            else if (isSearching && totalItems == 0)
+              Expanded(
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: PlayOnTheme.cyanAccent.withValues(alpha: 0.1),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.search_off_rounded,
+                            size: 56,
+                            color: PlayOnTheme.cyanAccent,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          'Sin resultados para "$searchQuery"',
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Intenta con otro término o revisa la ortografía',
+                          style: TextStyle(color: PlayOnTheme.textSecondary, fontSize: 13),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              )
             else
               Expanded(
                 child: ListView.builder(
-                  padding: const EdgeInsets.only(bottom: 90, left: 14, right: 14),
+                  padding: const EdgeInsets.only(bottom: 140, left: 14, right: 14),
                   physics: const BouncingScrollPhysics(),
-                  itemCount: folders.length + 1, // +1 for "Todas las canciones"
+                  itemCount: totalItems,
                   itemBuilder: (context, index) {
-                    // Index 0 is "Todas las canciones"
-                    if (index == 0) {
+                    // Index 0 is "Todas las canciones" when showAllOption is true
+                    if (showAllOption && index == 0) {
                       final isAllActive = provider.selectedFolder == null;
                       final isPlayingAll = isAllActive && provider.isPlaying;
 
@@ -192,7 +240,7 @@ class FoldersTab extends StatelessWidget {
                       );
                     }
 
-                    final folderName = folders[index - 1];
+                    final folderName = filteredFolders[showAllOption ? index - 1 : index];
                     final count = counts[folderName] ?? 0;
                     final isFolderActive = provider.selectedFolder == folderName;
                     final isFolderPlaying = isFolderActive && provider.isPlaying;

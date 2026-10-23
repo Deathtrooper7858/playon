@@ -27,13 +27,23 @@ class _DownloadScreenState extends State<DownloadScreen> {
   String _folderSelectionMode = 'auto'; // 'auto', 'existing', 'custom'
   String? _selectedExistingFolder;
 
+  DownloadProvider? _downloadProvider;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<DownloadProvider>().addListener(_onProviderChange);
-    });
     _loadCookieState();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final provider = Provider.of<DownloadProvider>(context, listen: false);
+    if (_downloadProvider != provider) {
+      _downloadProvider?.removeListener(_onProviderChange);
+      _downloadProvider = provider;
+      _downloadProvider?.addListener(_onProviderChange);
+    }
   }
 
   Future<void> _loadCookieState() async {
@@ -43,7 +53,8 @@ class _DownloadScreenState extends State<DownloadScreen> {
 
   void _onProviderChange() {
     if (!mounted) return;
-    final provider = context.read<DownloadProvider>();
+    final provider = _downloadProvider;
+    if (provider == null) return;
     if (provider.status == DownloadStatus.error && provider.errorMessage.isNotEmpty) {
       if (_lastError != provider.errorMessage) {
         _lastError = provider.errorMessage;
@@ -72,7 +83,8 @@ class _DownloadScreenState extends State<DownloadScreen> {
 
   @override
   void dispose() {
-    context.read<DownloadProvider>().removeListener(_onProviderChange);
+    _downloadProvider?.removeListener(_onProviderChange);
+    _downloadProvider = null;
     _urlController.dispose();
     _nameController.dispose();
     super.dispose();
@@ -119,7 +131,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
           backgroundColor: PlayOnTheme.bgDeep,
           body: SafeArea(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 140),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -657,7 +669,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
             final songs = musicProv.allSongs.where((s) => s.folderName == item.folderName).toList();
             if (songs.isNotEmpty) {
               musicProv.playCustomQueue(songs, 0);
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const NowPlayingScreen()));
+              NowPlayingScreen.open(context);
             }
           },
         ),
@@ -968,7 +980,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
                     final songs = musicProv.allSongs.where((s) => s.folderName == provider.playlistName).toList();
                     if (songs.isNotEmpty) {
                       musicProv.playCustomQueue(songs, 0);
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const NowPlayingScreen()));
+                      NowPlayingScreen.open(context);
                     }
                   },
                   icon: const Icon(Icons.play_arrow_rounded, color: Colors.white),
